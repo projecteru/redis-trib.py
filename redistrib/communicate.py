@@ -103,13 +103,13 @@ class ClusterNode(object):
                                 if 'myself' in role_in_cluster
                                 else role_in_cluster)
         self.master_id = node_id_of_master_if_it_is_a_slave
-        self.assigned_nodes = []
+        self.assigned_slots = []
         for slots_range in assigned_slots:
             if '-' in slots_range:
                 begin, end = slots_range.split('-')
-                self.assigned_nodes.extend(range(int(begin), int(end) + 1))
+                self.assigned_slots.extend(range(int(begin), int(end) + 1))
             else:
-                self.assigned_nodes.append(int(slots_range))
+                self.assigned_slots.append(int(slots_range))
 
     def talker(self):
         return Talker(self.host, self.port)
@@ -121,17 +121,20 @@ def _ensure_cluster_status_unset(t):
         raise hiredis.ProtocolError('Expect pong but recv: %s' % m)
 
     m = t.talk_raw(CMD_INFO)
+    logging.debug('Ask `info` Rsp %s', m)
     cluster_enabled = PAT_CLUSTER_ENABLED.findall(m)
     if len(cluster_enabled) == 0 or int(cluster_enabled[0]) == 0:
         raise hiredis.ProtocolError(
             'Node %s:%d is not cluster enabled' % (t.host, t.port))
 
     m = t.talk_raw(CMD_CLUSTER_NODES)
+    logging.debug('Ask `cluster nodes` Rsp %s', m)
     if len(filter(None, m.split('\n'))) != 1:
         raise hiredis.ProtocolError(
             'Node %s:%d is already in a cluster' % (t.host, t.port))
 
     m = t.talk_raw(CMD_CLUSTER_INFO)
+    logging.debug('Ask `cluster info` Rsp %s', m)
     cluster_state = PAT_CLUSTER_STATE.findall(m)
     cluster_slot_assigned = PAT_CLUSTER_SLOT_ASSIGNED.findall(m)
     if cluster_state[0] != 'fail' or int(cluster_slot_assigned[0]) != 0:
@@ -139,11 +142,33 @@ def _ensure_cluster_status_unset(t):
             'Node %s:%d is already in a cluster' % (t.host, t.port))
 
 
+def _ensure_cluster_status_set(t):
+    m = t.talk_raw(CMD_PING)
+    if m.lower() != 'pong':
+        raise hiredis.ProtocolError('Expect pong but recv: %s' % m)
+
+    m = t.talk_raw(CMD_INFO)
+    logging.debug('Ask `info` Rsp %s', m)
+    cluster_enabled = PAT_CLUSTER_ENABLED.findall(m)
+    if len(cluster_enabled) == 0 or int(cluster_enabled[0]) == 0:
+        raise hiredis.ProtocolError(
+            'Node %s:%d is not cluster enabled' % (t.host, t.port))
+
+    m = t.talk_raw(CMD_CLUSTER_INFO)
+    logging.debug('Ask `cluster info` Rsp %s', m)
+    cluster_state = PAT_CLUSTER_STATE.findall(m)
+    cluster_slot_assigned = PAT_CLUSTER_SLOT_ASSIGNED.findall(m)
+    if cluster_state[0] != 'ok':
+        raise hiredis.ProtocolError(
+            'Node %s:%d is not in a cluster' % (t.host, t.port))
+
+
 # Redis instance responses to clients BEFORE changing its 'cluster_state'
 #   just retry some times, it should become OK
 @retry(stop_max_attempt_number=16, wait_fixed=1000)
 def _poll_check_status(t):
     m = t.talk_raw(CMD_CLUSTER_INFO)
+    logging.debug('Ask `cluster info` Rsp %s', m)
     cluster_state = PAT_CLUSTER_STATE.findall(m)
     cluster_slot_assigned = PAT_CLUSTER_SLOT_ASSIGNED.findall(m)
     if cluster_state[0] != 'ok' or int(
@@ -158,6 +183,7 @@ def start_cluster(host, port):
         _ensure_cluster_status_unset(t)
 
         m = t.talk('cluster', 'addslots', *xrange(SLOT_COUNT))
+        logging.debug('Ask `cluster addslots` Rsp %s', m)
         if m.lower() != 'ok':
             raise RedisStatusError('Unexpected reply after ADDSLOTS: %s' % m)
 
@@ -200,7 +226,7 @@ def _migr_slot(source_node, target_talker, target_id, migrate_count, nodes):
 
     source_talker = source_node.talker()
     try:
-        for slot in source_node.assigned_nodes[:migrate_count]:
+        for slot in source_node.assigned_slots[:migrate_count]:
             expect_talk_ok(
                 target_talker.talk('cluster', 'setslot', slot, 'importing',
                                    source_node.node_id),
@@ -241,6 +267,7 @@ def join_cluster(cluster_host, cluster_port, newin_host, newin_port):
         _ensure_cluster_status_unset(t)
 
         m = t.talk('cluster', 'meet', cluster_host, cluster_port)
+        logging.debug('Ask `cluster meet` Rsp %s', m)
         if m.lower() != 'ok':
             raise RedisStatusError('Unexpected reply after MEET: %s' % m)
 
@@ -249,6 +276,7 @@ def join_cluster(cluster_host, cluster_port, newin_host, newin_port):
                      newin_host, newin_port, cluster_host, cluster_port)
 
         m = t.talk_raw(CMD_CLUSTER_INFO)
+        logging.debug('Ask `cluster info` Rsp %s', m)
         cluster_state = PAT_CLUSTER_STATE.findall(m)
         if cluster_state[0] != 'ok':
             raise hiredis.ProtocolError(
@@ -257,6 +285,7 @@ def join_cluster(cluster_host, cluster_port, newin_host, newin_port):
         myself = None
         nodes = []
         m = t.talk_raw(CMD_CLUSTER_NODES)
+        logging.debug('Ask `cluster nodes` Rsp %s', m)
         for node_info in m.split('\n'):
             if len(node_info) == 0:
                 continue
@@ -272,5 +301,79 @@ def join_cluster(cluster_host, cluster_port, newin_host, newin_port):
         logging.info('Migrating %d slots in each nodes', mig_slots_in_each)
         for node in nodes:
             _migr_slot(node, t, myself.node_id, mig_slots_in_each, nodes)
+    finally:
+        t.close()
+
+
+def quit_cluster(host, port):
+    t = Talker(host, port)
+    try:
+        _ensure_cluster_status_set(t)
+        nodes = []
+        myself = None
+        m = t.talk_raw(CMD_CLUSTER_NODES)
+        logging.debug('Ask `cluster nodes` Rsp %s', m)
+        for node_info in m.split('\n'):
+            if len(node_info) == 0:
+                continue
+            node = ClusterNode(*node_info.split(' '))
+            if 'myself' in node_info:
+                myself = node
+            else:
+                nodes.append(node)
+        if myself is None:
+            raise RedisStatusError('Myself is missing:\n%s' % m)
+
+        mig_slots_to_each = len(myself.assigned_slots) / len(nodes)
+        logging.info('Migrating slots from %s (total %d / each %d)',
+                     myself.node_id, len(myself.assigned_slots),
+                     mig_slots_to_each)
+        for node in nodes[:-1]:
+            tk = node.talker()
+            try:
+                _migr_slot(myself, tk, node.node_id, mig_slots_to_each, nodes)
+                del myself.assigned_slots[:mig_slots_to_each]
+            finally:
+                tk.close()
+        node = nodes[-1]
+        tk = node.talker()
+        try:
+            _migr_slot(myself, tk, node.node_id,
+                       len(myself.assigned_slots), nodes)
+        finally:
+            tk.close()
+
+        logging.info('Migrated for %s / Broadcast a `forget`', myself.node_id)
+        for node in nodes:
+            tk = node.talker()
+            try:
+                tk.talk('cluster', 'forget', myself.node_id)
+                t.talk('cluster', 'forget', node.node_id)
+            finally:
+                tk.close()
+    finally:
+        t.close()
+
+
+def shutdown_cluster(host, port):
+    t = Talker(host, port)
+    try:
+        _ensure_cluster_status_set(t)
+        myself = None
+        m = t.talk_raw(CMD_CLUSTER_NODES)
+        logging.debug('Ask `cluster nodes` Rsp %s', m)
+        nodes_info = filter(None, m.split('\n'))
+        if len(nodes_info) > 1:
+            raise RedisStatusError('More than 1 nodes in cluster.')
+        myself = ClusterNode(*nodes_info[0].split(' '))
+
+        for s in myself.assigned_slots:
+            m = t.talk('cluster', 'countkeysinslot', s)
+            logging.debug('Ask `cluster countkeysinslot` Rsp %s', m)
+            if m != 0:
+                raise RedisStatusError('Slot #%d not empty.', s)
+
+        m = t.talk('cluster', 'delslots', *range(SLOT_COUNT))
+        logging.debug('Ask `cluster delslots` Rsp %s', m)
     finally:
         t.close()

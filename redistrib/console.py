@@ -19,6 +19,14 @@ def join(cluster_host_port, newin_host_port):
                              newin_host, newin_port)
 
 
+def quit(host_port):
+    communicate.quit_cluster(*_parse_host_port(host_port))
+
+
+def shutdown(host_port):
+    communicate.shutdown_cluster(*_parse_host_port(host_port))
+
+
 def main():
     if len(sys.argv) < 2:
         print >> sys.stderr, 'Usage:'
