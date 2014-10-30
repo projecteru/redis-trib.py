@@ -1,11 +1,10 @@
-import os.path
-from setuptools import setup, find_packages
+from setuptools import setup
 
 _URI = 'https://github.com/neuront/redis-trib.py'
 
 setup(
     name='redis-trib',
-    version='0.1.1',
+    version='0.1.2',
     author='Neuron Teckid',
     author_email='lene13@gmail.com',
     license='MIT',

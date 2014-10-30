@@ -1,4 +1,5 @@
 import sys
+import logging
 
 import communicate
 
@@ -32,5 +33,5 @@ def main():
         print >> sys.stderr, 'Usage:'
         print >> sys.stderr, '    redis-trib.py ACTION_NAME [arg0 arg1 ...]'
         sys.exit(1)
-
+    logging.basicConfig(level=logging.INFO)
     getattr(sys.modules[__name__], sys.argv[1])(*sys.argv[2:])
