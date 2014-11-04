@@ -37,3 +37,7 @@ The Python API
     redistrib.communicate.shutdown_cluster('127.0.0.1', 7001)
 
 See also https://github.com/antirez/redis/blob/3.0/src/redis-trib.rb
+
+The `join_cluster` function takes 2 optional arguments `balancer` and `balance_plan`. The former is an object for calculating the weights of cluster nodes, and the latter is a function that calculates how the slots migrate to balance the load between nodes.
+
+As crude examples, you could refer to `redistrib.clusternode.BaseBalancer` and `redistrib.clusternode.base_balance_plan`. An instance of `BaseBalancer` should implement `weight` method that returns the weight of a specified node, and a function like `base_balance_plan` should return a list of migration tuples (source node, destination node, slots count).

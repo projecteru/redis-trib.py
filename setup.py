@@ -4,7 +4,7 @@ _URI = 'https://github.com/neuront/redis-trib.py'
 
 setup(
     name='redis-trib',
-    version='0.1.2',
+    version='0.1.3',
     author='Neuron Teckid',
     author_email='lene13@gmail.com',
     license='MIT',

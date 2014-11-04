@@ -1,58 +1,12 @@
-import socket
 import re
 import hiredis
 import logging
 from retrying import retry
 
-SYM_STAR = '*'
-SYM_DOLLAR = '$'
-SYM_CRLF = '\r\n'
-SYM_EMPTY = ''
+from exceptions import RedisStatusError
+from clusternode import Talker, ClusterNode, base_balance_plan
+from clusternode import CMD_PING, CMD_INFO, CMD_CLUSTER_NODES, CMD_CLUSTER_INFO
 
-
-class RedisStatusError(Exception):
-    pass
-
-
-def encode(value, encoding='utf-8'):
-    if isinstance(value, bytes):
-        return value
-    if isinstance(value, (int, long)):
-        return str(value)
-    if isinstance(value, float):
-        return repr(value)
-    if isinstance(value, unicode):
-        return value.encode(encoding)
-    if not isinstance(value, basestring):
-        return str(value)
-    return value
-
-
-def pack_command(command, *args):
-    output = []
-    if ' ' in command:
-        args = tuple([s for s in command.split(' ')]) + args
-    else:
-        args = (command,) + args
-
-    buff = SYM_EMPTY.join((SYM_STAR, str(len(args)), SYM_CRLF))
-
-    for arg in map(encode, args):
-        if len(buff) > 6000 or len(arg) > 6000:
-            buff = SYM_EMPTY.join((buff, SYM_DOLLAR, str(len(arg)), SYM_CRLF))
-            output.append(buff)
-            output.append(arg)
-            buff = SYM_CRLF
-        else:
-            buff = SYM_EMPTY.join((buff, SYM_DOLLAR, str(len(arg)),
-                                   SYM_CRLF, arg, SYM_CRLF))
-    output.append(buff)
-    return output
-
-CMD_PING = pack_command('ping')
-CMD_INFO = pack_command('info')
-CMD_CLUSTER_NODES = pack_command('cluster', 'nodes')
-CMD_CLUSTER_INFO = pack_command('cluster', 'info')
 
 PAT_CLUSTER_ENABLED = re.compile('cluster_enabled:([01])')
 PAT_CLUSTER_STATE = re.compile('cluster_state:([a-z]+)')
@@ -60,71 +14,6 @@ PAT_CLUSTER_SLOT_ASSIGNED = re.compile('cluster_slots_assigned:([0-9]+)')
 
 # One Redis cluster requires at least 16384 slots
 SLOT_COUNT = 16384
-
-
-class Talker(object):
-    def __init__(self, host, port):
-        self.host = host
-        self.port = port
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.reader = hiredis.Reader()
-        self.last_raw_message = None
-
-        self.sock.settimeout(8)
-        logging.debug('Connect to %s:%d', host, port)
-        self.sock.connect((host, port))
-
-    def talk_raw(self, command):
-        for c in command:
-            self.sock.send(c)
-        self.last_raw_message = self.sock.recv(16384)
-        self.reader.feed(self.last_raw_message)
-        return self.reader.gets()
-
-    def talk(self, *args):
-        return self.talk_raw(pack_command(*args))
-
-    def close(self):
-        return self.sock.close()
-
-
-class ClusterNode(object):
-    # What does each field mean in "cluster nodes" output
-    # > http://oldblog.antirez.com/post/2-4-and-other-news.html
-    # but assigned slots / node_index not listed
-    def __init__(self, node_id, latest_know_ip_address_and_port,
-                 role_in_cluster, node_id_of_master_if_it_is_a_slave,
-                 last_ping_sent_time, last_pong_received_time, node_index,
-                 link_status, *assigned_slots):
-        self.node_id = node_id
-        host, port = latest_know_ip_address_and_port.split(':')
-        self.host = host
-        self.port = int(port)
-        self.role_in_cluster = (role_in_cluster.split(',')[1]
-                                if 'myself' in role_in_cluster
-                                else role_in_cluster)
-        self.master_id = node_id_of_master_if_it_is_a_slave
-        self.assigned_slots = []
-        for slots_range in assigned_slots:
-            if '[' == slots_range[0] and ']' == slots_range[-1]:
-                # exclude migrating slot
-                continue
-            if '-' in slots_range:
-                begin, end = slots_range.split('-')
-                self.assigned_slots.extend(range(int(begin), int(end) + 1))
-            else:
-                self.assigned_slots.append(int(slots_range))
-        self._talker = None
-
-    def talker(self):
-        if self._talker is None:
-            self._talker = Talker(self.host, self.port)
-        return self._talker
-
-    def close(self):
-        if self._talker is not None:
-            self._talker.close()
-            self._talker = None
 
 
 def _ensure_cluster_status_unset(t):
@@ -235,6 +124,11 @@ def _migr_keys(src_talker, target_host, target_port, slot):
 
 
 def _migr_slot(source_node, target_node, migrate_count, nodes):
+    logging.info(
+        'Migrating %d slots from %s<%s:%d> to %s<%s:%d>', migrate_count,
+        source_node.node_id, source_node.host, source_node.port,
+        target_node.node_id, target_node.host, target_node.port)
+
     def expect_talk_ok(m, slot):
         if m.lower() != 'ok':
             raise RedisStatusError('\n'.join([
@@ -268,11 +162,11 @@ def _migr_slot(source_node, target_node, migrate_count, nodes):
             'cluster', 'setslot', slot, 'node', target_node.node_id), slot)
 
 
-def join_cluster(cluster_host, cluster_port, newin_host, newin_port):
+def join_cluster(cluster_host, cluster_port, newin_host, newin_port,
+                 balancer=None, balance_plan=base_balance_plan):
     _ensure_cluster_status_set_at(cluster_host, cluster_port)
 
     nodes = []
-    myself = None
     t = Talker(newin_host, newin_port)
 
     try:
@@ -300,26 +194,16 @@ def join_cluster(cluster_host, cluster_port, newin_host, newin_port):
             if len(node_info) == 0:
                 continue
             node = ClusterNode(*node_info.split(' '))
-            if 'myself' in node_info:
-                myself = node
+            if 'myself' in node_info and node.host == '':
                 # A new node might have a empty host string because it does not
                 # know what interface it binds
-                if myself.host == '':
-                    myself.host = newin_host
-            else:
-                nodes.append(node)
-        if myself is None:
-            raise RedisStatusError('Myself is missing:\n%s' % m)
+                node.host = newin_host
+            nodes.append(node)
 
-        mig_slots_in_each = SLOT_COUNT / (1 + len(nodes)) / len(nodes)
-        for node in nodes:
-            logging.info('Migrating %d slots from %s[%s:%d]',
-                         mig_slots_in_each, node.node_id, node.host, node.port)
-            _migr_slot(node, myself, mig_slots_in_each, nodes)
+        for source, target, count in balance_plan(nodes, balancer):
+            _migr_slot(source, target, count, nodes)
     finally:
         t.close()
-        if myself is not None:
-            myself.close()
         for n in nodes:
             n.close()
 
@@ -345,14 +229,9 @@ def quit_cluster(host, port):
 
         mig_slots_to_each = len(myself.assigned_slots) / len(nodes)
         for node in nodes[:-1]:
-            logging.info('Migrating %d slots to %s[%s:%d]',
-                         mig_slots_to_each, node.node_id, node.host, node.port)
             _migr_slot(myself, node, mig_slots_to_each, nodes)
             del myself.assigned_slots[:mig_slots_to_each]
         node = nodes[-1]
-        logging.info('Migrating %d slots to %s[%s:%d]',
-                     len(myself.assigned_slots), node.node_id, node.host,
-                     node.port)
         _migr_slot(myself, node, len(myself.assigned_slots), nodes)
 
         logging.info('Migrated for %s / Broadcast a `forget`', myself.node_id)
@@ -384,7 +263,7 @@ def shutdown_cluster(host, port):
             m = t.talk('cluster', 'countkeysinslot', s)
             logging.debug('Ask `cluster countkeysinslot` Rsp %s', m)
             if m != 0:
-                raise RedisStatusError('Slot #%d not empty.', s)
+                raise RedisStatusError('Slot %d not empty.' % s)
 
         m = t.talk('cluster', 'delslots', *range(SLOT_COUNT))
         logging.debug('Ask `cluster delslots` Rsp %s', m)
