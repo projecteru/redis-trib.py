@@ -11,6 +11,8 @@ from clusternode import CMD_PING, CMD_INFO, CMD_CLUSTER_NODES, CMD_CLUSTER_INFO
 PAT_CLUSTER_ENABLED = re.compile('cluster_enabled:([01])')
 PAT_CLUSTER_STATE = re.compile('cluster_state:([a-z]+)')
 PAT_CLUSTER_SLOT_ASSIGNED = re.compile('cluster_slots_assigned:([0-9]+)')
+PAT_MIGRATING_IN = re.compile(r'\[(?P<slot>[0-9]+)-<-(?P<id>\w+)\]$')
+PAT_MIGRATING_OUT = re.compile(r'\[(?P<slot>[0-9]+)->-(?P<id>\w+)\]$')
 
 # One Redis cluster requires at least 16384 slots
 SLOT_COUNT = 16384
@@ -123,12 +125,16 @@ def _migr_keys(src_talker, target_host, target_port, slot):
                     src_talker.port, target_host, target_port, m)
 
 
-def _migr_slot(source_node, target_node, migrate_count, nodes):
+def _migr_slots(source_node, target_node, migrate_count, nodes):
     logging.info(
         'Migrating %d slots from %s<%s:%d> to %s<%s:%d>', migrate_count,
         source_node.node_id, source_node.host, source_node.port,
         target_node.node_id, target_node.host, target_node.port)
+    for slot in source_node.assigned_slots[:migrate_count]:
+        _migr_one_slot(source_node, target_node, slot, nodes)
 
+
+def _migr_one_slot(source_node, target_node, slot, nodes):
     def expect_talk_ok(m, slot):
         if m.lower() != 'ok':
             raise RedisStatusError('\n'.join([
@@ -139,27 +145,26 @@ def _migr_slot(source_node, target_node, migrate_count, nodes):
 
     source_talker = source_node.talker()
     target_talker = target_node.talker()
-    for slot in source_node.assigned_slots[:migrate_count]:
-        expect_talk_ok(
-            target_talker.talk('cluster', 'setslot', slot, 'importing',
-                               source_node.node_id),
-            slot)
-        expect_talk_ok(
-            source_talker.talk('cluster', 'setslot', slot, 'migrating',
-                               target_node.node_id),
-            slot)
-        _migr_keys(source_talker, target_node.host, target_node.port, slot)
+    expect_talk_ok(
+        target_talker.talk('cluster', 'setslot', slot, 'importing',
+                           source_node.node_id),
+        slot)
+    expect_talk_ok(
+        source_talker.talk('cluster', 'setslot', slot, 'migrating',
+                           target_node.node_id),
+        slot)
+    _migr_keys(source_talker, target_node.host, target_node.port, slot)
 
-        for node in nodes:
-            if node.node_id == source_node.node_id:
-                continue
-            t = node.talker()
-            expect_talk_ok(t.talk(
-                'cluster', 'setslot', slot, 'node', target_node.node_id), slot)
-        expect_talk_ok(source_talker.talk(
+    for node in nodes:
+        if node.node_id == source_node.node_id:
+            continue
+        t = node.talker()
+        expect_talk_ok(t.talk(
             'cluster', 'setslot', slot, 'node', target_node.node_id), slot)
-        expect_talk_ok(target_talker.talk(
-            'cluster', 'setslot', slot, 'node', target_node.node_id), slot)
+    expect_talk_ok(source_talker.talk(
+        'cluster', 'setslot', slot, 'node', target_node.node_id), slot)
+    expect_talk_ok(target_talker.talk(
+        'cluster', 'setslot', slot, 'node', target_node.node_id), slot)
 
 
 def join_cluster(cluster_host, cluster_port, newin_host, newin_port,
@@ -201,7 +206,7 @@ def join_cluster(cluster_host, cluster_port, newin_host, newin_port,
             nodes.append(node)
 
         for source, target, count in balance_plan(nodes, balancer):
-            _migr_slot(source, target, count, nodes)
+            _migr_slots(source, target, count, nodes)
     finally:
         t.close()
         for n in nodes:
@@ -229,10 +234,10 @@ def quit_cluster(host, port):
 
         mig_slots_to_each = len(myself.assigned_slots) / len(nodes)
         for node in nodes[:-1]:
-            _migr_slot(myself, node, mig_slots_to_each, nodes)
+            _migr_slots(myself, node, mig_slots_to_each, nodes)
             del myself.assigned_slots[:mig_slots_to_each]
         node = nodes[-1]
-        _migr_slot(myself, node, len(myself.assigned_slots), nodes)
+        _migr_slots(myself, node, len(myself.assigned_slots), nodes)
 
         logging.info('Migrated for %s / Broadcast a `forget`', myself.node_id)
         for node in nodes:
@@ -269,3 +274,49 @@ def shutdown_cluster(host, port):
         logging.debug('Ask `cluster delslots` Rsp %s', m)
     finally:
         t.close()
+
+
+def fix_migrating(host, port):
+    nodes = dict()
+    mig_srcs = []
+    mig_dsts = []
+    t = Talker(host, port)
+    try:
+        m = t.talk_raw(CMD_CLUSTER_NODES)
+        logging.debug('Ask `cluster nodes` Rsp %s', m)
+        for node_info in m.split('\n'):
+            if len(node_info) == 0:
+                continue
+            node = ClusterNode(*node_info.split(' '))
+            nodes[node.node_id] = node
+
+            search = PAT_MIGRATING_IN.search(node_info)
+            if search is not None:
+                mig_dsts.append((node, search.groupdict()))
+
+            search = PAT_MIGRATING_OUT.search(node_info)
+            if search is not None:
+                mig_srcs.append((node, search.groupdict()))
+
+        for n, args in mig_dsts:
+            node_id = args['id']
+            if node_id not in nodes:
+                logging.error('Fail to fix %s:%d <- (referenced from %s:%d)'
+                              ' - node %s is missing', n.host, n.port,
+                              host, port, node_id)
+                continue
+            _migr_one_slot(nodes[node_id], n, int(args['slot']),
+                           nodes.itervalues())
+        for n, args in mig_srcs:
+            node_id = args['id']
+            if node_id not in nodes:
+                logging.error('Fail to fix %s:%d -> (referenced from %s:%d)'
+                              ' - node %s is missing', n.host, n.port,
+                              host, port, node_id)
+                continue
+            _migr_one_slot(n, nodes[node_id], int(args['slot']),
+                           nodes.itervalues())
+    finally:
+        t.close()
+        for n in nodes.itervalues():
+            n.close()

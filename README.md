@@ -18,6 +18,10 @@ Shutdown an empty cluster (there is only one node left and no keys in the node)
 
     redis-trib.py shutdown NODE_HOST:PORT
 
+Fix a migrating slot in a node
+
+    redis-trib.py fix HOST_HOST:PORT
+
 Support master nodes only. Auto slots balancing.
 
 The Python API
@@ -35,6 +39,9 @@ The Python API
 
     # shut down the cluster
     redistrib.communicate.shutdown_cluster('127.0.0.1', 7001)
+
+    # fix a migrating slot in a node
+    redistrib.communicate.fix_migrating('127.0.0.1', 7001)
 
 See also https://github.com/antirez/redis/blob/3.0/src/redis-trib.rb
 

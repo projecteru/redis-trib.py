@@ -61,7 +61,7 @@ clean:
 cleanmeta:
 	-rm -rf redis_trib.egg-info/
 
-cleanall: clean cleanmeta
+cleanall:clean cleanmeta
 	-find . -type f -name "*.pyc" -exec rm -f "{}" \;
 
 build:

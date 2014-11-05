@@ -4,7 +4,7 @@ from redis.exceptions import ResponseError
 
 import redistrib.communicate as comm
 from redistrib.exceptions import RedisStatusError
-from redistrib.clusternode import ClusterNode
+from redistrib.clusternode import ClusterNode, Talker, CMD_CLUSTER_NODES
 
 
 class ApiTest(unittest.TestCase):
@@ -60,3 +60,78 @@ class ApiTest(unittest.TestCase):
         comm.shutdown_cluster('127.0.0.1', 7101)
 
         self.assertRaisesRegexp(ResponseError, 'CLUSTERDOWN .*', rc.get, 'key')
+
+    def test_fix(self):
+        def migrate_one_slot(nodes, _):
+            if nodes[0].port == 7000:
+                source, target = nodes
+            else:
+                target, source = nodes
+            return [(source, target, 1)]
+
+        comm.start_cluster('127.0.0.1', 7100)
+        rc = RedisCluster([{'host': '127.0.0.1', 'port': 7100}])
+        comm.join_cluster('127.0.0.1', 7100, '127.0.0.1', 7101,
+                          balance_plan=migrate_one_slot)
+
+        rc.set('h-893', 'I am in slot 0')
+        comm.fix_migrating('127.0.0.1', 7100)
+        self.assertEqual('I am in slot 0', rc.get('h-893'))
+
+        t7100 = Talker('127.0.0.1', 7100)
+        m = t7100.talk_raw(CMD_CLUSTER_NODES)
+        nodes = []
+        for node_info in m.split('\n'):
+            if len(node_info) == 0:
+                continue
+            nodes.append(ClusterNode(*node_info.split(' ')))
+        self.assertEqual(2, len(nodes))
+
+        if nodes[0].port == 7100:
+            n7100, n7101 = nodes
+        else:
+            n7101, n7100 = nodes
+        t7100.talk('cluster', 'setslot', 0, 'importing', n7101.node_id)
+
+        comm.fix_migrating('127.0.0.1', 7100)
+        self.assertEqual('I am in slot 0', rc.get('h-893'))
+
+        m = t7100.talk_raw(CMD_CLUSTER_NODES)
+        nodes = []
+        for node_info in m.split('\n'):
+            if len(node_info) == 0:
+                continue
+            nodes.append(ClusterNode(*node_info.split(' ')))
+        self.assertEqual(2, len(nodes))
+        if nodes[0].port == 7100:
+            n7100, n7101 = nodes
+        else:
+            n7101, n7100 = nodes
+        self.assertEqual(16384, len(n7100.assigned_slots))
+        self.assertEqual(0, len(n7101.assigned_slots))
+
+        t7101 = Talker('127.0.0.1', 7101)
+        m = t7101.talk_raw(CMD_CLUSTER_NODES)
+        nodes = []
+        for node_info in m.split('\n'):
+            if len(node_info) == 0:
+                continue
+            nodes.append(ClusterNode(*node_info.split(' ')))
+        self.assertEqual(2, len(nodes))
+        if nodes[0].port == 7100:
+            n7100, n7101 = nodes
+        else:
+            n7101, n7100 = nodes
+        self.assertEqual(16384, len(n7100.assigned_slots))
+        self.assertEqual(0, len(n7101.assigned_slots))
+
+        t7100.talk('cluster', 'setslot', 0, 'migrating', n7101.node_id)
+        comm.fix_migrating('127.0.0.1', 7100)
+        self.assertEqual('I am in slot 0', rc.get('h-893'))
+
+        comm.quit_cluster('127.0.0.1', 7101)
+        rc.delete('h-893')
+        comm.shutdown_cluster('127.0.0.1', 7100)
+
+        t7100.close()
+        t7101.close()

@@ -28,6 +28,10 @@ def shutdown(host_port):
     communicate.shutdown_cluster(*_parse_host_port(host_port))
 
 
+def fix(host_port):
+    communicate.fix_migrating(*_parse_host_port(host_port))
+
+
 def main():
     if len(sys.argv) < 2:
         print >> sys.stderr, 'Usage:'
