@@ -1,7 +1,7 @@
 import sys
 import logging
 
-import communicate
+import command
 
 
 def _parse_host_port(addr):
@@ -10,26 +10,31 @@ def _parse_host_port(addr):
 
 
 def start(host_port):
-    communicate.start_cluster(*_parse_host_port(host_port))
+    command.start_cluster(*_parse_host_port(host_port))
 
 
 def join(cluster_host_port, newin_host_port):
     cluster_host, cluster_port = _parse_host_port(cluster_host_port)
     newin_host, newin_port = _parse_host_port(newin_host_port)
-    communicate.join_cluster(cluster_host, cluster_port,
-                             newin_host, newin_port)
+    command.join_cluster(cluster_host, cluster_port, newin_host, newin_port)
 
 
 def quit(host_port):
-    communicate.quit_cluster(*_parse_host_port(host_port))
+    command.quit_cluster(*_parse_host_port(host_port))
 
 
 def shutdown(host_port):
-    communicate.shutdown_cluster(*_parse_host_port(host_port))
+    command.shutdown_cluster(*_parse_host_port(host_port))
 
 
 def fix(host_port):
-    communicate.fix_migrating(*_parse_host_port(host_port))
+    command.fix_migrating(*_parse_host_port(host_port))
+
+
+def replicate(master_host_port, slave_host_port):
+    master_host, master_port = _parse_host_port(master_host_port)
+    slave_host, slave_port = _parse_host_port(slave_host_port)
+    command.replicate(master_host, master_port, slave_host, slave_port)
 
 
 def main():

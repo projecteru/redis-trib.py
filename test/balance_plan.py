@@ -7,6 +7,7 @@ class FakeNode(object):
     def __init__(self, node_id, slot_count):
         self.node_id = node_id
         self.assigned_slots = range(slot_count)
+        self.role_in_cluster = 'master'
 
 
 class BalancePlanTest(unittest.TestCase):

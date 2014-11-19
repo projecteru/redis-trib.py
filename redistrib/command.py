@@ -232,18 +232,20 @@ def quit_cluster(host, port):
         if myself is None:
             raise RedisStatusError('Myself is missing:\n%s' % m)
 
-        mig_slots_to_each = len(myself.assigned_slots) / len(nodes)
-        for node in nodes[:-1]:
-            _migr_slots(myself, node, mig_slots_to_each, nodes)
-            del myself.assigned_slots[:mig_slots_to_each]
-        node = nodes[-1]
-        _migr_slots(myself, node, len(myself.assigned_slots), nodes)
+        if myself.role_in_cluster == 'master':
+            mig_slots_to_each = len(myself.assigned_slots) / len(nodes)
+            for node in nodes[:-1]:
+                _migr_slots(myself, node, mig_slots_to_each, nodes)
+                del myself.assigned_slots[:mig_slots_to_each]
+            node = nodes[-1]
+            _migr_slots(myself, node, len(myself.assigned_slots), nodes)
 
         logging.info('Migrated for %s / Broadcast a `forget`', myself.node_id)
         for node in nodes:
             tk = node.talker()
             tk.talk('cluster', 'forget', myself.node_id)
             t.talk('cluster', 'forget', node.node_id)
+        t.talk('cluster', 'reset')
     finally:
         t.close()
         if myself is not None:
@@ -320,3 +322,46 @@ def fix_migrating(host, port):
         t.close()
         for n in nodes.itervalues():
             n.close()
+
+
+def replicate(master_host, master_port, slave_host, slave_port):
+    master_talker = None
+    t = Talker(slave_host, slave_port)
+    try:
+        master_talker = Talker(master_host, master_port)
+        _ensure_cluster_status_set(master_talker)
+        m = master_talker.talk_raw(CMD_CLUSTER_NODES)
+        logging.debug('Ask `cluster nodes` Rsp %s', m)
+        myid = None
+        for node_info in m.split('\n'):
+            if len(node_info) == 0:
+                continue
+            node = ClusterNode(*node_info.split(' '))
+            if 'myself' in node_info:
+                if 'master' == node.role_in_cluster:
+                    myid = node.node_id
+                else:
+                    myid = node.master_id
+                break
+        if myid is None:
+            raise RedisStatusError('Myself is missing:\n%s' % m)
+
+        _ensure_cluster_status_unset(t)
+        m = t.talk('cluster', 'meet', master_host, master_port)
+        logging.debug('Ask `cluster meet` Rsp %s', m)
+        if m.lower() != 'ok':
+            raise RedisStatusError('Unexpected reply after MEET: %s' % m)
+        _poll_check_status(t)
+        logging.info('Instance at %s:%d has joined %s:%d; now set replica',
+                     slave_host, slave_port, master_host, master_port)
+
+        m = t.talk('cluster', 'replicate', myid)
+        logging.debug('Ask `cluster replicate` Rsp %s', m)
+        if m.lower() != 'ok':
+            raise RedisStatusError('Unexpected reply after REPCLIATE: %s' % m)
+        logging.info('Instance at %s:%d set as replica to %s',
+                     slave_host, slave_port, myid)
+    finally:
+        t.close()
+        if master_talker is not None:
+            master_talker.close()

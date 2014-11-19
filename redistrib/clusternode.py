@@ -123,6 +123,7 @@ class BaseBalancer(object):
 def base_balance_plan(nodes, balancer=None):
     if balancer is None:
         balancer = BaseBalancer()
+    nodes = [n for n in nodes if 'master' == n.role_in_cluster]
     origin_slots = [len(n.assigned_slots) for n in nodes]
     total_slots = sum(origin_slots)
     weights = [balancer.weight(n) for n in nodes]

@@ -2,7 +2,7 @@ import unittest
 from rediscluster import RedisCluster
 from redis.exceptions import ResponseError
 
-import redistrib.communicate as comm
+import redistrib.command as comm
 from redistrib.exceptions import RedisStatusError
 from redistrib.clusternode import ClusterNode, Talker, CMD_CLUSTER_NODES
 

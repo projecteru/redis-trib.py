@@ -6,9 +6,13 @@ Start a cluster in a single redis node (the node should have cluster enabled)
 
     redis-trib.py start NODE_HOST:PORT
 
-Add another node to a cluster
+Add another master node to a cluster
 
     redis-trib.py join CLUSTER_HOST:PORT NEW_NODE_HOST:PORT
+
+Add a slave node to a master (slave should not in any cluster)
+
+    redis-trib.py replicate MASTER_HOST:PORT SLAVE_HOST:PORT
 
 Remove a node from its cluster
 
@@ -26,22 +30,25 @@ Support master nodes only. Auto slots balancing.
 
 The Python API
 
-    import redistrib.communicate
+    import redistrib.command
 
     # start cluster at node 127.0.0.1:7000
-    redistrib.communicate.start_cluster('127.0.0.1', 7000)
+    redistrib.command.start_cluster('127.0.0.1', 7000)
 
-    # add node 127.0.0.1:7001 to the cluster
-    redistrib.communicate.join_cluster('127.0.0.1', 7000, '127.0.0.1', 7001)
+    # add node 127.0.0.1:7001 to the cluster as a master
+    redistrib.command.join_cluster('127.0.0.1', 7000, '127.0.0.1', 7001)
+
+    # add node 127.0.0.1:7002 to the cluster as a slave to 127.0.0.1:7000
+    redistrib.command.replicate('127.0.0.1', 7000, '127.0.0.1', 7002)
 
     # remove node 127.0.0.7000 from the cluster
-    redistrib.communicate.quit_cluster('127.0.0.1', 7000)
+    redistrib.command.quit_cluster('127.0.0.1', 7000)
 
     # shut down the cluster
-    redistrib.communicate.shutdown_cluster('127.0.0.1', 7001)
+    redistrib.command.shutdown_cluster('127.0.0.1', 7001)
 
     # fix a migrating slot in a node
-    redistrib.communicate.fix_migrating('127.0.0.1', 7001)
+    redistrib.command.fix_migrating('127.0.0.1', 7001)
 
 See also https://github.com/antirez/redis/blob/3.0/src/redis-trib.rb
 
