@@ -2,6 +2,11 @@ DEMO VERSION WARNING:
 
 THIS PROJECT IS A DEMO ON HOW TO MANIPULATE REDIS CLUSTER WITH PYTHON SOCKET, WITH UNSTABLE API, LACK OF TESTS. AND IT DOES NOT SUPPORT SIMULTANEOUS OPERATIONS ON ONE CLUSTER.
 
+Install
+
+    pip install redis-trib
+    easy_install redis-trib
+
 Start a cluster in a single redis node (the node should have cluster enabled)
 
     redis-trib.py start NODE_HOST:PORT
@@ -26,7 +31,7 @@ Fix a migrating slot in a node
 
     redis-trib.py fix HOST_HOST:PORT
 
-Support master nodes only. Auto slots balancing.
+The above APIs balance slots automatically and not configurable.
 
 The Python API
 

@@ -66,7 +66,12 @@ class Talker(object):
             self.sock.send(c)
         self.last_raw_message = self.sock.recv(16384)
         self.reader.feed(self.last_raw_message)
-        return self.reader.gets()
+        r = self.reader.gets()
+        if r is None:
+            raise ValueError('No reply')
+        if isinstance(r, hiredis.ReplyError):
+            raise r
+        return r
 
     def talk(self, *args):
         return self.talk_raw(pack_command(*args))

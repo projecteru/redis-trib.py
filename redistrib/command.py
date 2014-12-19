@@ -18,6 +18,10 @@ PAT_MIGRATING_OUT = re.compile(r'\[(?P<slot>[0-9]+)->-(?P<id>\w+)\]$')
 SLOT_COUNT = 16384
 
 
+def _valid_node_info(n):
+    return len(n) != 0 and 'fail' not in n
+
+
 def _ensure_cluster_status_unset(t):
     m = t.talk_raw(CMD_PING)
     if m.lower() != 'pong':
@@ -84,7 +88,7 @@ def _poll_check_status(t):
     cluster_slot_assigned = PAT_CLUSTER_SLOT_ASSIGNED.findall(m)
     if cluster_state[0] != 'ok' or int(
             cluster_slot_assigned[0]) != SLOT_COUNT:
-        raise RedisStatusError('Unexpected status after ADDSLOTS: %s' % m)
+        raise RedisStatusError('Unexpected status: %s' % m)
 
 
 def start_cluster(host, port):
@@ -196,7 +200,7 @@ def join_cluster(cluster_host, cluster_port, newin_host, newin_port,
         m = t.talk_raw(CMD_CLUSTER_NODES)
         logging.debug('Ask `cluster nodes` Rsp %s', m)
         for node_info in m.split('\n'):
-            if len(node_info) == 0:
+            if not _valid_node_info(node_info):
                 continue
             node = ClusterNode(*node_info.split(' '))
             if 'myself' in node_info and node.host == '':
@@ -222,7 +226,7 @@ def quit_cluster(host, port):
         m = t.talk_raw(CMD_CLUSTER_NODES)
         logging.debug('Ask `cluster nodes` Rsp %s', m)
         for node_info in m.split('\n'):
-            if len(node_info) == 0:
+            if not _valid_node_info(node_info):
                 continue
             node = ClusterNode(*node_info.split(' '))
             if 'myself' in node_info:
@@ -287,7 +291,7 @@ def fix_migrating(host, port):
         m = t.talk_raw(CMD_CLUSTER_NODES)
         logging.debug('Ask `cluster nodes` Rsp %s', m)
         for node_info in m.split('\n'):
-            if len(node_info) == 0:
+            if not _valid_node_info(node_info):
                 continue
             node = ClusterNode(*node_info.split(' '))
             nodes[node.node_id] = node
@@ -334,7 +338,7 @@ def replicate(master_host, master_port, slave_host, slave_port):
         logging.debug('Ask `cluster nodes` Rsp %s', m)
         myid = None
         for node_info in m.split('\n'):
-            if len(node_info) == 0:
+            if not _valid_node_info(node_info):
                 continue
             node = ClusterNode(*node_info.split(' '))
             if 'myself' in node_info:
