@@ -219,36 +219,45 @@ def join_cluster(cluster_host, cluster_port, newin_host, newin_port,
 
 def quit_cluster(host, port):
     nodes = []
+    other_masters = []
     myself = None
     t = Talker(host, port)
     try:
         _ensure_cluster_status_set(t)
         m = t.talk_raw(CMD_CLUSTER_NODES)
         logging.debug('Ask `cluster nodes` Rsp %s', m)
+        master_ids = set()
         for node_info in m.split('\n'):
             if not _valid_node_info(node_info):
                 continue
             node = ClusterNode(*node_info.split(' '))
             if 'myself' in node_info:
                 myself = node
+                continue
+            nodes.append(node)
+            if node.role_in_cluster == 'master':
+                other_masters.append(node)
             else:
-                nodes.append(node)
+                master_ids.add(node.master_id)
+        if len(other_masters) == 0:
+            raise ValueError('This is the last node; use `shutdown` instead')
         if myself is None:
             raise RedisStatusError('Myself is missing:\n%s' % m)
+        if myself.node_id in master_ids:
+            raise ValueError('The master still has slaves')
 
         if myself.role_in_cluster == 'master':
-            mig_slots_to_each = len(myself.assigned_slots) / len(nodes)
-            for node in nodes[:-1]:
+            mig_slots_to_each = len(myself.assigned_slots) / len(other_masters)
+            for node in other_masters[:-1]:
                 _migr_slots(myself, node, mig_slots_to_each, nodes)
                 del myself.assigned_slots[:mig_slots_to_each]
-            node = nodes[-1]
+            node = other_masters[-1]
             _migr_slots(myself, node, len(myself.assigned_slots), nodes)
 
         logging.info('Migrated for %s / Broadcast a `forget`', myself.node_id)
         for node in nodes:
             tk = node.talker()
             tk.talk('cluster', 'forget', myself.node_id)
-            t.talk('cluster', 'forget', node.node_id)
         t.talk('cluster', 'reset')
     finally:
         t.close()
@@ -328,6 +337,16 @@ def fix_migrating(host, port):
             n.close()
 
 
+@retry(stop_max_attempt_number=16, wait_fixed=1000)
+def _check_slave(slave_host, slave_port, t):
+    slave_addr = '%s:%d' % (slave_host, slave_port)
+    for line in t.talk('cluster', 'nodes').split('\n'):
+        if slave_addr in line:
+            if 'slave' in line:
+                return
+            raise RedisStatusError('%s not switched to a slave' % slave_addr)
+
+
 def replicate(master_host, master_port, slave_host, slave_port):
     master_talker = None
     t = Talker(slave_host, slave_port)
@@ -363,6 +382,7 @@ def replicate(master_host, master_port, slave_host, slave_port):
         logging.debug('Ask `cluster replicate` Rsp %s', m)
         if m.lower() != 'ok':
             raise RedisStatusError('Unexpected reply after REPCLIATE: %s' % m)
+        _check_slave(slave_host, slave_port, master_talker)
         logging.info('Instance at %s:%d set as replica to %s',
                      slave_host, slave_port, myid)
     finally:
