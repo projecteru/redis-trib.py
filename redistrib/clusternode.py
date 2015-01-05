@@ -55,18 +55,25 @@ class Talker(object):
         self.port = port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.reader = hiredis.Reader()
-        self.last_raw_message = None
+        self.last_raw_message = ''
 
         self.sock.settimeout(8)
         logging.debug('Connect to %s:%d', host, port)
         self.sock.connect((host, port))
 
+    def _recv(self):
+        while True:
+            m = self.sock.recv(16384)
+            self.last_raw_message += m
+            self.reader.feed(m)
+            r = self.reader.gets()
+            if r != False:
+                return r
+
     def talk_raw(self, command):
         for c in command:
             self.sock.send(c)
-        self.last_raw_message = self.sock.recv(16384)
-        self.reader.feed(self.last_raw_message)
-        r = self.reader.gets()
+        r = self._recv()
         if r is None:
             raise ValueError('No reply')
         if isinstance(r, hiredis.ReplyError):
