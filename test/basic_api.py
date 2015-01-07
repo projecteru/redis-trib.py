@@ -22,7 +22,7 @@ class ApiTest(unittest.TestCase):
         for i in xrange(20):
             self.assertEqual('value_%s' % i, rc.get('key_%s' % i))
 
-        nodes = base.list_nodes(rc)
+        nodes = base.list_nodes('127.0.0.1', 7100)
 
         self.assertEqual(2, len(nodes))
         self.assertEqual(range(8192),
@@ -36,13 +36,13 @@ class ApiTest(unittest.TestCase):
             self.assertEqual('value_%s' % i, rc.get('key_%s' % i))
         self.assertEqual('value', rc.get('key'))
 
-        nodes = base.list_nodes(rc)
+        nodes = base.list_nodes('127.0.0.1', 7101)
         self.assertEqual(1, len(nodes))
         self.assertEqual(range(16384),
                          nodes[('127.0.0.1', 7101)].assigned_slots)
 
         self.assertRaisesRegexp(
-            RedisStatusError, r'Slot [0-9]+ not empty\.',
+            RedisStatusError, 'Cluster containing keys',
             comm.shutdown_cluster, '127.0.0.1', 7101)
 
         rc.delete('key', *['key_%s' % i for i in xrange(20)])
@@ -68,7 +68,7 @@ class ApiTest(unittest.TestCase):
         self.assertEqual('I am in slot 0', rc.get('h-893'))
 
         t7100 = Talker('127.0.0.1', 7100)
-        nodes = base.list_nodes(rc)
+        nodes = base.list_nodes('127.0.0.1', 7100)
         self.assertEqual(2, len(nodes))
 
         n7100 = nodes[('127.0.0.1', 7100)]
@@ -78,7 +78,7 @@ class ApiTest(unittest.TestCase):
         comm.fix_migrating('127.0.0.1', 7100)
         self.assertEqual('I am in slot 0', rc.get('h-893'))
 
-        nodes = base.list_nodes(rc)
+        nodes = base.list_nodes('127.0.0.1', 7100)
         self.assertEqual(2, len(nodes))
         n7100 = nodes[('127.0.0.1', 7100)]
         n7101 = nodes[('127.0.0.1', 7101)]
@@ -86,7 +86,7 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(0, len(n7101.assigned_slots))
 
         t7101 = Talker('127.0.0.1', 7101)
-        nodes = base.list_nodes(rc)
+        nodes = base.list_nodes('127.0.0.1', 7100)
         self.assertEqual(2, len(nodes))
         n7100 = nodes[('127.0.0.1', 7100)]
         n7101 = nodes[('127.0.0.1', 7101)]

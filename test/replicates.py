@@ -22,7 +22,7 @@ class ReplicationTest(unittest.TestCase):
         for i in xrange(20):
             self.assertEqual('value_%s' % i, rc.get('key_%s' % i))
 
-        nodes = base.list_nodes(rc)
+        nodes = base.list_nodes('127.0.0.1', 7100)
         self.assertEqual(3, len(nodes))
         self.assertEqual(range(8192),
                          nodes[('127.0.0.1', 7101)].assigned_slots)
@@ -31,7 +31,7 @@ class ReplicationTest(unittest.TestCase):
 
         comm.quit_cluster('127.0.0.1', 7101)
 
-        nodes = base.list_nodes(rc)
+        nodes = base.list_nodes('127.0.0.1', 7100)
         self.assertEqual(range(16384),
                          nodes[('127.0.0.1', 7100)].assigned_slots)
 
@@ -57,7 +57,7 @@ class ReplicationTest(unittest.TestCase):
         for i in xrange(20):
             self.assertEqual('value_%s' % i, rc.get('key_%s' % i))
 
-        nodes = base.list_nodes(rc)
+        nodes = base.list_nodes('127.0.0.1', 7100)
         self.assertEqual(3, len(nodes))
         self.assertEqual(range(8192),
                          nodes[('127.0.0.1', 7101)].assigned_slots)

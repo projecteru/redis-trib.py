@@ -34,12 +34,6 @@ def _ensure_cluster_status_unset(t):
         raise hiredis.ProtocolError(
             'Node %s:%d is not cluster enabled' % (t.host, t.port))
 
-    m = t.talk_raw(CMD_CLUSTER_NODES)
-    logging.debug('Ask `cluster nodes` Rsp %s', m)
-    if len(filter(None, m.split('\n'))) != 1:
-        raise hiredis.ProtocolError(
-            'Node %s:%d is already in a cluster' % (t.host, t.port))
-
     m = t.talk_raw(CMD_CLUSTER_INFO)
     logging.debug('Ask `cluster info` Rsp %s', m)
     cluster_state = PAT_CLUSTER_STATE.findall(m)
@@ -197,17 +191,7 @@ def join_cluster(cluster_host, cluster_port, newin_host, newin_port,
             raise hiredis.ProtocolError(
                 'Node %s:%d is already in a cluster' % (t.host, t.port))
         slots = int(PAT_CLUSTER_SLOT_ASSIGNED.findall(m)[0])
-        m = t.talk_raw(CMD_CLUSTER_NODES)
-        logging.debug('Ask `cluster nodes` Rsp %s', m)
-        for node_info in m.split('\n'):
-            if not _valid_node_info(node_info):
-                continue
-            node = ClusterNode(*node_info.split(' '))
-            if 'myself' in node_info and node.host == '':
-                # A new node might have a empty host string because it does not
-                # know what interface it binds
-                node.host = newin_host
-            nodes.append(node)
+        nodes = _list_nodes(t, default_host=newin_host)[0]
 
         for source, target, count in balance_plan(nodes, balancer):
             _migr_slots(source, target, count, nodes)
@@ -217,43 +201,37 @@ def join_cluster(cluster_host, cluster_port, newin_host, newin_port,
             n.close()
 
 
+def _check_master_and_migrate_slots(nodes, myself):
+    other_masters = []
+    master_ids = set()
+    for node in nodes:
+        if node.role_in_cluster == 'master':
+            other_masters.append(node)
+        else:
+            master_ids.add(node.master_id)
+    if len(other_masters) == 0:
+        raise ValueError('This is the last node')
+    if myself.node_id in master_ids:
+        raise ValueError('The master still has slaves')
+
+    mig_slots_to_each = len(myself.assigned_slots) / len(other_masters)
+    for node in other_masters[:-1]:
+        _migr_slots(myself, node, mig_slots_to_each, nodes)
+        del myself.assigned_slots[:mig_slots_to_each]
+    node = other_masters[-1]
+    _migr_slots(myself, node, len(myself.assigned_slots), nodes)
+
+
 def quit_cluster(host, port):
     nodes = []
-    other_masters = []
     myself = None
     t = Talker(host, port)
     try:
         _ensure_cluster_status_set(t)
-        m = t.talk_raw(CMD_CLUSTER_NODES)
-        logging.debug('Ask `cluster nodes` Rsp %s', m)
-        master_ids = set()
-        for node_info in m.split('\n'):
-            if not _valid_node_info(node_info):
-                continue
-            node = ClusterNode(*node_info.split(' '))
-            if 'myself' in node_info:
-                myself = node
-                continue
-            nodes.append(node)
-            if node.role_in_cluster == 'master':
-                other_masters.append(node)
-            else:
-                master_ids.add(node.master_id)
-        if len(other_masters) == 0:
-            raise ValueError('This is the last node; use `shutdown` instead')
-        if myself is None:
-            raise RedisStatusError('Myself is missing:\n%s' % m)
-        if myself.node_id in master_ids:
-            raise ValueError('The master still has slaves')
-
+        nodes, myself = _list_nodes(t)
+        nodes.remove(myself)
         if myself.role_in_cluster == 'master':
-            mig_slots_to_each = len(myself.assigned_slots) / len(other_masters)
-            for node in other_masters[:-1]:
-                _migr_slots(myself, node, mig_slots_to_each, nodes)
-                del myself.assigned_slots[:mig_slots_to_each]
-            node = other_masters[-1]
-            _migr_slots(myself, node, len(myself.assigned_slots), nodes)
-
+            _check_master_and_migrate_slots(nodes, myself)
         logging.info('Migrated for %s / Broadcast a `forget`', myself.node_id)
         for node in nodes:
             tk = node.talker()
@@ -277,15 +255,12 @@ def shutdown_cluster(host, port):
         nodes_info = filter(None, m.split('\n'))
         if len(nodes_info) > 1:
             raise RedisStatusError('More than 1 nodes in cluster.')
-        myself = ClusterNode(*nodes_info[0].split(' '))
-
-        for s in myself.assigned_slots:
-            m = t.talk('cluster', 'countkeysinslot', s)
-            logging.debug('Ask `cluster countkeysinslot` Rsp %s', m)
-            if m != 0:
-                raise RedisStatusError('Slot %d not empty.' % s)
-
-        m = t.talk('cluster', 'delslots', *range(SLOT_COUNT))
+        try:
+            m = t.talk('cluster', 'reset')
+        except hiredis.ReplyError, e:
+            if 'containing keys' in e.message:
+                raise RedisStatusError('Cluster containing keys')
+            raise
         logging.debug('Ask `cluster delslots` Rsp %s', m)
     finally:
         t.close()
@@ -353,21 +328,9 @@ def replicate(master_host, master_port, slave_host, slave_port):
     try:
         master_talker = Talker(master_host, master_port)
         _ensure_cluster_status_set(master_talker)
-        m = master_talker.talk_raw(CMD_CLUSTER_NODES)
-        logging.debug('Ask `cluster nodes` Rsp %s', m)
-        myid = None
-        for node_info in m.split('\n'):
-            if not _valid_node_info(node_info):
-                continue
-            node = ClusterNode(*node_info.split(' '))
-            if 'myself' in node_info:
-                if 'master' == node.role_in_cluster:
-                    myid = node.node_id
-                else:
-                    myid = node.master_id
-                break
-        if myid is None:
-            raise RedisStatusError('Myself is missing:\n%s' % m)
+        myself = _list_nodes(master_talker)[1]
+        myid = (myself.node_id if myself.role_in_cluster == 'master'
+                else myself.master_id)
 
         _ensure_cluster_status_unset(t)
         m = t.talk('cluster', 'meet', master_host, master_port)
@@ -389,3 +352,43 @@ def replicate(master_host, master_port, slave_host, slave_port):
         t.close()
         if master_talker is not None:
             master_talker.close()
+
+
+def _list_nodes(talker, default_host='', filter_func=lambda node: True):
+    m = talker.talk_raw(CMD_CLUSTER_NODES)
+    logging.debug('Ask `cluster nodes` Rsp %s', m)
+
+    nodes = []
+    myself = None
+    for node_info in m.split('\n'):
+        if not _valid_node_info(node_info):
+            continue
+        node = ClusterNode(*node_info.split(' '))
+        if 'myself' in node_info:
+            myself = node
+            if myself.host == '':
+                myself.host = default_host
+        if filter_func(node):
+            nodes.append(node)
+    return nodes, myself
+
+
+def _list_masters(talker, default_host=''):
+    return _list_nodes(talker, default_host,
+                       lambda node: node.role_in_cluster == 'master')
+
+
+def list_nodes(host, port, default_host=''):
+    t = Talker(host, port)
+    try:
+        return _list_nodes(t, default_host)
+    finally:
+        t.close()
+
+
+def list_master(host, port, default_host=''):
+    t = Talker(host, port)
+    try:
+        return _list_masters(t, default_host)
+    finally:
+        t.close()
