@@ -35,6 +35,10 @@ Fix a migrating slot in a node
 
     redis-trib.py fix HOST_HOST:PORT
 
+Migrate one slot (require source node holding the migrated slot)
+
+    redis-trib.py migrate_slot SRC_HOST:PORT DST_HOST_PORT SLOT
+
 The above APIs balance slots automatically and not configurable.
 
 Python API
@@ -74,6 +78,10 @@ Cluster Operation APIs
 
     # fix a migrating slot in a node
     redistrib.command.fix_migrating('127.0.0.1', 7001)
+
+    # migrate a slot; require source node holding the slot
+    slot = 16383
+    redistrib.command.migrate_slot('127.0.0.1', 7001, '127.0.0.1', 7002, slot)
 
 See also https://github.com/antirez/redis/blob/3.0/src/redis-trib.rb
 

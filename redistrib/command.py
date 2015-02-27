@@ -143,14 +143,25 @@ def _migr_one_slot(source_node, target_node, slot, nodes):
 
     source_talker = source_node.talker()
     target_talker = target_node.talker()
-    expect_talk_ok(
-        target_talker.talk('cluster', 'setslot', slot, 'importing',
-                           source_node.node_id),
-        slot)
-    expect_talk_ok(
-        source_talker.talk('cluster', 'setslot', slot, 'migrating',
-                           target_node.node_id),
-        slot)
+
+    try:
+        expect_talk_ok(
+            target_talker.talk('cluster', 'setslot', slot, 'importing',
+                               source_node.node_id),
+            slot)
+    except hiredis.ReplyError, e:
+        if 'already the owner of' not in e.message:
+            raise
+
+    try:
+        expect_talk_ok(
+            source_talker.talk('cluster', 'setslot', slot, 'migrating',
+                               target_node.node_id),
+            slot)
+    except hiredis.ReplyError, e:
+        if 'not the owner of' not in e.message:
+            raise
+
     _migr_keys(source_talker, target_node.host, target_node.port, slot)
 
     for node in nodes:
@@ -354,9 +365,10 @@ def replicate(master_host, master_port, slave_host, slave_port):
             master_talker.close()
 
 
-def _list_nodes(talker, default_host='', filter_func=lambda node: True):
+def _list_nodes(talker, default_host=None, filter_func=lambda node: True):
     m = talker.talk_raw(CMD_CLUSTER_NODES)
     logging.debug('Ask `cluster nodes` Rsp %s', m)
+    default_host = default_host or talker.host
 
     nodes = []
     myself = None
@@ -373,22 +385,36 @@ def _list_nodes(talker, default_host='', filter_func=lambda node: True):
     return nodes, myself
 
 
-def _list_masters(talker, default_host=''):
-    return _list_nodes(talker, default_host,
+def _list_masters(talker, default_host=None):
+    return _list_nodes(talker, default_host or talker.host,
                        lambda node: node.role_in_cluster == 'master')
 
 
-def list_nodes(host, port, default_host=''):
+def list_nodes(host, port, default_host=None):
     t = Talker(host, port)
     try:
-        return _list_nodes(t, default_host)
+        return _list_nodes(t, default_host or host)
     finally:
         t.close()
 
 
-def list_master(host, port, default_host=''):
+def list_masters(host, port, default_host=None):
     t = Talker(host, port)
     try:
-        return _list_masters(t, default_host)
+        return _list_masters(t, default_host or host)
+    finally:
+        t.close()
+
+
+def migrate_slot(src_host, src_port, dst_host, dst_port, slot):
+    t = Talker(src_host, src_port)
+    try:
+        nodes, myself = _list_masters(t, src_host)
+        if slot not in myself.assigned_slots:
+            raise ValueError('Slot not held by %s:%d' % (src_host, src_port))
+        for n in nodes:
+            if n.host == dst_host and n.port == dst_port:
+                return _migr_one_slot(myself, n, slot, nodes)
+        raise ValueError('Two nodes are not in the same cluster')
     finally:
         t.close()

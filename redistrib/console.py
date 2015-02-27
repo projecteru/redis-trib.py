@@ -37,6 +37,12 @@ def replicate(master_host_port, slave_host_port):
     command.replicate(master_host, master_port, slave_host, slave_port)
 
 
+def migrate_slot(src_host_port, dst_host_port, slot):
+    src_host, src_port = _parse_host_port(src_host_port)
+    dst_host, dst_port = _parse_host_port(dst_host_port)
+    command.migrate_slot(src_host, src_port, dst_host, dst_port, slot)
+
+
 def main():
     if len(sys.argv) < 2:
         print >> sys.stderr, 'Usage:'
