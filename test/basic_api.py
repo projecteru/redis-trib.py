@@ -39,13 +39,27 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(range(8193, 16384),
                          nodes[('127.0.0.1', 7100)].assigned_slots)
 
+        comm.migrate_slots('127.0.0.1', 7100, '127.0.0.1', 7101,
+                           [8193, 8194, 8195])
+
+        nodes = base.list_nodes('127.0.0.1', 7100)
+        self.assertEqual(2, len(nodes))
+        self.assertEqual(range(8196),
+                         nodes[('127.0.0.1', 7101)].assigned_slots)
+        self.assertEqual(range(8196, 16384),
+                         nodes[('127.0.0.1', 7100)].assigned_slots)
+
         self.assertRaisesRegexp(
             ValueError, 'Slot not held by', comm.migrate_slot,
             '127.0.0.1', 7100, '127.0.0.1', 7101, 8192)
 
         self.assertRaisesRegexp(
+            ValueError, 'Not all slot held by', comm.migrate_slots,
+            '127.0.0.1', 7100, '127.0.0.1', 7101, [8195, 8196])
+
+        self.assertRaisesRegexp(
             ValueError, 'Two nodes are not in the same cluster',
-            comm.migrate_slot, '127.0.0.1', 7100, '127.0.0.1', 7102, 8193)
+            comm.migrate_slot, '127.0.0.1', 7100, '127.0.0.1', 7102, 8196)
 
         comm.quit_cluster('127.0.0.1', 7100)
 

@@ -407,14 +407,37 @@ def list_masters(host, port, default_host=None):
 
 
 def migrate_slot(src_host, src_port, dst_host, dst_port, slot):
+    if src_host == dst_host and src_port == dst_port:
+        raise ValueError('Same node')
     t = Talker(src_host, src_port)
     try:
         nodes, myself = _list_masters(t, src_host)
-        if slot not in myself.assigned_slots:
-            raise ValueError('Slot not held by %s:%d' % (src_host, src_port))
-        for n in nodes:
-            if n.host == dst_host and n.port == dst_port:
-                return _migr_one_slot(myself, n, slot, nodes)
-        raise ValueError('Two nodes are not in the same cluster')
     finally:
         t.close()
+
+    if slot not in myself.assigned_slots:
+        raise ValueError('Slot not held by %s:%d' % (src_host, src_port))
+    for n in nodes:
+        if n.host == dst_host and n.port == dst_port:
+            return _migr_one_slot(myself, n, slot, nodes)
+    raise ValueError('Two nodes are not in the same cluster')
+
+
+def migrate_slots(src_host, src_port, dst_host, dst_port, slots):
+    if src_host == dst_host and src_port == dst_port:
+        raise ValueError('Same node')
+    t = Talker(src_host, src_port)
+    try:
+        nodes, myself = _list_masters(t, src_host)
+    finally:
+        t.close()
+
+    slots = set(slots)
+    if not slots.issubset(set(myself.assigned_slots)):
+        raise ValueError('Not all slot held by %s:%d' % (src_host, src_port))
+    for n in nodes:
+        if n.host == dst_host and n.port == dst_port:
+            for s in slots:
+                _migr_one_slot(myself, n, s, nodes)
+            return
+    raise ValueError('Two nodes are not in the same cluster')

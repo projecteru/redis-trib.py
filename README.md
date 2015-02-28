@@ -1,6 +1,6 @@
 DEMO VERSION WARNING:
 
-THIS PROJECT IS A DEMO ON HOW TO MANIPULATE REDIS CLUSTER WITH PYTHON SOCKET, WITH UNSTABLE API, LACK OF TESTS. AND IT DOES NOT SUPPORT SIMULTANEOUS OPERATIONS ON ONE CLUSTER.
+IT DOES NOT SUPPORT SIMULTANEOUS OPERATIONS ON ONE CLUSTER.
 
 Installation
 ===
@@ -79,9 +79,13 @@ Cluster Operation APIs
     # fix a migrating slot in a node
     redistrib.command.fix_migrating('127.0.0.1', 7001)
 
-    # migrate a slot; require source node holding the slot
-    slot = 16383
-    redistrib.command.migrate_slot('127.0.0.1', 7001, '127.0.0.1', 7002, slot)
+    # migrate slots; require source node holding the slots
+
+    # migrate slot #0 from 127.0.0.1:7001 to 127.0.0.1:7002
+    redistrib.command.migrate_slot('127.0.0.1', 7001, '127.0.0.1', 7002, 0)
+
+    # migrate slots #1, #2, #3 from 127.0.0.1:7001 to 127.0.0.1:7002
+    redistrib.command.migrate_slots('127.0.0.1', 7001, '127.0.0.1', 7002, [1, 2, 3])
 
 See also https://github.com/antirez/redis/blob/3.0/src/redis-trib.rb
 
