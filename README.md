@@ -19,6 +19,10 @@ Add another master node to a cluster
 
     redis-trib.py join CLUSTER_HOST:PORT NEW_NODE_HOST:PORT
 
+Add another node to a cluster, but neither set as slave nor migrating slots to it
+
+    redis-trib.py join_no_load CLUSTER_HOST:PORT NEW_NODE_HOST:PORT
+
 Add a slave node to a master (slave should not in any cluster)
 
     redis-trib.py replicate MASTER_HOST:PORT SLAVE_HOST:PORT
@@ -69,6 +73,10 @@ Cluster Operation APIs
 
     # add node 127.0.0.1:7002 to the cluster as a slave to 127.0.0.1:7000
     redistrib.command.replicate('127.0.0.1', 7000, '127.0.0.1', 7002)
+
+    # just add node 127.0.0.1:7001 to the cluster, not specifying its role
+    # could call migrate_slot(s) on it later, so that it becomes a master
+    redistrib.command.join_no_load('127.0.0.1', 7000, '127.0.0.1', 7001)
 
     # remove node 127.0.0.7000 from the cluster
     redistrib.command.quit_cluster('127.0.0.1', 7000)

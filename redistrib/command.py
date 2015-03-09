@@ -176,22 +176,23 @@ def _migr_one_slot(source_node, target_node, slot, nodes):
         'cluster', 'setslot', slot, 'node', target_node.node_id), slot)
 
 
+def _join_to_cluster(cluster_host, cluster_port, newin_talker):
+    _ensure_cluster_status_set_at(cluster_host, cluster_port)
+    _ensure_cluster_status_unset(newin_talker)
+
+    m = newin_talker.talk('cluster', 'meet', cluster_host, cluster_port)
+    logging.debug('Ask `cluster meet` Rsp %s', m)
+    if m.lower() != 'ok':
+        raise RedisStatusError('Unexpected reply after MEET: %s' % m)
+    _poll_check_status(newin_talker)
+
+
 def join_cluster(cluster_host, cluster_port, newin_host, newin_port,
                  balancer=None, balance_plan=base_balance_plan):
-    _ensure_cluster_status_set_at(cluster_host, cluster_port)
-
     nodes = []
     t = Talker(newin_host, newin_port)
-
     try:
-        _ensure_cluster_status_unset(t)
-
-        m = t.talk('cluster', 'meet', cluster_host, cluster_port)
-        logging.debug('Ask `cluster meet` Rsp %s', m)
-        if m.lower() != 'ok':
-            raise RedisStatusError('Unexpected reply after MEET: %s' % m)
-
-        _poll_check_status(t)
+        _join_to_cluster(cluster_host, cluster_port, t)
         logging.info('Instance at %s:%d has joined %s:%d; now balancing slots',
                      newin_host, newin_port, cluster_host, cluster_port)
 
@@ -210,6 +211,14 @@ def join_cluster(cluster_host, cluster_port, newin_host, newin_port,
         t.close()
         for n in nodes:
             n.close()
+
+
+def join_no_load(cluster_host, cluster_port, newin_host, newin_port):
+    t = Talker(newin_host, newin_port)
+    try:
+        _join_to_cluster(cluster_host, cluster_port, t)
+    finally:
+        t.close()
 
 
 def _check_master_and_migrate_slots(nodes, myself):
@@ -343,12 +352,7 @@ def replicate(master_host, master_port, slave_host, slave_port):
         myid = (myself.node_id if myself.role_in_cluster == 'master'
                 else myself.master_id)
 
-        _ensure_cluster_status_unset(t)
-        m = t.talk('cluster', 'meet', master_host, master_port)
-        logging.debug('Ask `cluster meet` Rsp %s', m)
-        if m.lower() != 'ok':
-            raise RedisStatusError('Unexpected reply after MEET: %s' % m)
-        _poll_check_status(t)
+        _join_to_cluster(master_host, master_port, t)
         logging.info('Instance at %s:%d has joined %s:%d; now set replica',
                      slave_host, slave_port, master_host, master_port)
 

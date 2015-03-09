@@ -19,6 +19,12 @@ def join(cluster_host_port, newin_host_port):
     command.join_cluster(cluster_host, cluster_port, newin_host, newin_port)
 
 
+def join_no_load(cluster_host_port, newin_host_port):
+    cluster_host, cluster_port = _parse_host_port(cluster_host_port)
+    newin_host, newin_port = _parse_host_port(newin_host_port)
+    command.join_no_load(cluster_host, cluster_port, newin_host, newin_port)
+
+
 def quit(host_port):
     command.quit_cluster(*_parse_host_port(host_port))
 
