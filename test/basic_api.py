@@ -81,6 +81,26 @@ class ApiTest(unittest.TestCase):
 
         self.assertRaisesRegexp(ResponseError, 'CLUSTERDOWN .*', rc.get, 'key')
 
+    def test_start_multi(self):
+        comm.start_cluster_on_multi([('127.0.0.1', 7100), ('127.0.0.1', 7101)])
+        nodes = base.list_nodes('127.0.0.1', 7100)
+        self.assertEqual(2, len(nodes))
+        self.assertEqual(8192, len(nodes[('127.0.0.1', 7100)].assigned_slots))
+        self.assertEqual(8192, len(nodes[('127.0.0.1', 7101)].assigned_slots))
+        comm.quit_cluster('127.0.0.1', 7100)
+        comm.shutdown_cluster('127.0.0.1', 7101)
+
+        comm.start_cluster_on_multi([('127.0.0.1', 7100), ('127.0.0.1', 7101),
+                                     ('127.0.0.1', 7102)])
+        nodes = base.list_nodes('127.0.0.1', 7100)
+        self.assertEqual(3, len(nodes))
+        self.assertEqual(5462, len(nodes[('127.0.0.1', 7100)].assigned_slots))
+        self.assertEqual(5461, len(nodes[('127.0.0.1', 7101)].assigned_slots))
+        self.assertEqual(5461, len(nodes[('127.0.0.1', 7102)].assigned_slots))
+        comm.quit_cluster('127.0.0.1', 7100)
+        comm.quit_cluster('127.0.0.1', 7101)
+        comm.shutdown_cluster('127.0.0.1', 7102)
+
     def test_fix(self):
         def migrate_one_slot(nodes, _):
             if nodes[0].port == 7100:

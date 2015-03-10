@@ -1,19 +1,21 @@
-DEMO VERSION WARNING:
-
-IT DOES NOT SUPPORT SIMULTANEOUS OPERATIONS ON ONE CLUSTER.
-
-Installation
-===
+# Installation
 
     pip install redis-trib
     easy_install redis-trib
 
-Console Entry
-===
+# Usage
 
-Start a cluster in a single redis node (the node should have cluster enabled)
+WARNING: The following console commands or APIs not support simultaneous operations on one cluster.
+
+## Console Commands
+
+Start a cluster in a single redis node (the node should have cluster enabled, and not in a cluster)
 
     redis-trib.py start NODE_HOST:PORT
+
+Start a cluster in some redis nodes (the nodes should have cluster enabled, and none of them in any cluster)
+
+    redis-trib.py start_multi NODE_HOST_a:PORT_a NODE_HOST_b:PORT_b ...
 
 Add another master node to a cluster
 
@@ -45,28 +47,19 @@ Migrate one slot (require source node holding the migrated slot)
 
 The above APIs balance slots automatically and not configurable.
 
-Python API
-===
+## Python APIs
 
-Classes
----
-
-`redistrib.cluster.ClusterNode`: cluster node, attributes:
-
-* `node_id`: node id
-* `host`: known host, this value could be empty string if the node is newly launched
-* `port`: listening port
-* `role_in_cluster`: `"master"` or `"slave"`
-* `master_id`: master's `node_id` if it's a slave
-* `assigned_slots`: a list of assigned slots if it's a master; it won't contain slots being migrated
-
-Cluster Operation APIs
----
+### Cluster Operation APIs
 
     import redistrib.command
 
     # start cluster at node 127.0.0.1:7000
     redistrib.command.start_cluster('127.0.0.1', 7000)
+
+    # start cluster on multiple nodes, all the slots will be shared among them
+    # the argument is a list of (HOST, PORT) tuples
+    # for example, the following call will start a cluster on 127.0.0.1:7000 and 127.0.0.1:7001
+    redistrib.command.start_cluster([('127.0.0.1', 7000), ('127.0.0.1', 7001)])
 
     # add node 127.0.0.1:7001 to the cluster as a master
     redistrib.command.join_cluster('127.0.0.1', 7000, '127.0.0.1', 7001)
@@ -101,12 +94,11 @@ The `join_cluster` function takes 2 optional arguments `balancer` and `balance_p
 
 As crude examples, you could refer to `redistrib.clusternode.BaseBalancer` and `redistrib.clusternode.base_balance_plan`. An instance of `BaseBalancer` should implement `weight` method that returns the weight of a specified node, and a function like `base_balance_plan` should return a list of migration tuples (source node, destination node, slots count).
 
-Cluster Status APIs
----
+### Cluster Status APIs
 
     import redistrib.command
 
-    # list all cluster nodes
+    # list all cluster nodes (attributes of which shown in the next section)
     # args
     #   - host: host of specified node
     #   - port: port of specified node
@@ -122,3 +114,14 @@ Cluster Status APIs
     #   - nodes: all master nodes
     #   - myself: the specified node itself, contained by nodes if it's a master; won't be None even if it's a slave
     nodes, myself = redistrib.command.list_masters('127.0.0.1', 7000, default_host='127.0.0.1')
+
+### Classes
+
+`redistrib.cluster.ClusterNode`: cluster node, attributes:
+
+* `node_id`: node id
+* `host`: known host, this value could be empty string if the node is newly launched
+* `port`: listening port
+* `role_in_cluster`: `"master"` or `"slave"`
+* `master_id`: master's `node_id` if it's a slave
+* `assigned_slots`: a list of assigned slots if it's a master; it won't contain slots being migrated

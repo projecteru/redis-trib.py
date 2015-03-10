@@ -103,6 +103,35 @@ def start_cluster(host, port):
         t.close()
 
 
+def start_cluster_on_multi(host_port_list):
+    talkers = []
+    try:
+        for host, port in host_port_list:
+            t = Talker(host, port)
+            talkers.append(t)
+            _ensure_cluster_status_unset(t)
+            logging.info('Instance at %s:%d checked', t.host, t.port)
+
+        first_talker = talkers[0]
+        slots_each = SLOT_COUNT / len(talkers)
+        slots_residue = SLOT_COUNT - slots_each * len(talkers)
+        first_node_slots = slots_residue + slots_each
+        first_talker.talk('cluster', 'addslots', *xrange(first_node_slots))
+        logging.info('Add %d slots to %s:%d', slots_residue + slots_each,
+                     first_talker.host, first_talker.port)
+        for i, t in enumerate(talkers[1:]):
+            t.talk('cluster', 'meet', first_talker.host, first_talker.port)
+            t.talk('cluster', 'addslots', *xrange(
+                i * slots_each + first_node_slots,
+                (i + 1) * slots_each + first_node_slots))
+            logging.info('Add %d slots to %s:%d', slots_each, t.host, t.port)
+
+        _poll_check_status(first_talker)
+    finally:
+        for t in talkers:
+            t.close()
+
+
 def _migr_keys(src_talker, target_host, target_port, slot):
     while True:
         keys = src_talker.talk('cluster', 'getkeysinslot', slot, 10)
@@ -298,6 +327,7 @@ def fix_migrating(host, port):
             if not _valid_node_info(node_info):
                 continue
             node = ClusterNode(*node_info.split(' '))
+            node.host = node.host or host
             nodes[node.node_id] = node
 
             search = PAT_MIGRATING_IN.search(node_info)

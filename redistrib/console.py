@@ -13,6 +13,11 @@ def start(host_port):
     command.start_cluster(*_parse_host_port(host_port))
 
 
+def start_multi(*host_port_list):
+    command.start_cluster_on_multi([_parse_host_port(hp)
+                                    for hp in host_port_list])
+
+
 def join(cluster_host_port, newin_host_port):
     cluster_host, cluster_port = _parse_host_port(cluster_host_port)
     newin_host, newin_port = _parse_host_port(newin_host_port)
