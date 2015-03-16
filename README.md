@@ -21,6 +21,8 @@ Add another master node to a cluster
 
     redis-trib.py join CLUSTER_HOST:PORT NEW_NODE_HOST:PORT
 
+The above APIs balance slots automatically and not configurable.
+
 Add another node to a cluster, but neither set as slave nor migrating slots to it
 
     redis-trib.py join_no_load CLUSTER_HOST:PORT NEW_NODE_HOST:PORT
@@ -41,11 +43,15 @@ Fix a migrating slot in a node
 
     redis-trib.py fix HOST_HOST:PORT
 
-Migrate one slot (require source node holding the migrated slot)
+Migrate slots (require source node holding all the migrating slots, and the two nodes are in the same cluster)
 
-    redis-trib.py migrate_slot SRC_HOST:PORT DST_HOST_PORT SLOT
+    redis-trib.py migrate_slots SRC_HOST:PORT DST_HOST:PORT SLOT SLOT_BEGIN-SLOT_END
 
-The above APIs balance slots automatically and not configurable.
+each of "slot" argument tuple could be an integer (indicating a single slot number) or a range (begin and end, end is exclusive). For example
+
+    redis-trib.py migrate_slots 127.0.0.1:7000 127.0.0.1:7001 0 2 4-8
+
+means migrate slot #0 #2 #4 #5 #6 #7 from `127.0.0.1:7000` to `127.0.0.1:7001`.
 
 ## Python APIs
 
@@ -81,9 +87,6 @@ The above APIs balance slots automatically and not configurable.
     redistrib.command.fix_migrating('127.0.0.1', 7001)
 
     # migrate slots; require source node holding the slots
-
-    # migrate slot #0 from 127.0.0.1:7001 to 127.0.0.1:7002
-    redistrib.command.migrate_slot('127.0.0.1', 7001, '127.0.0.1', 7002, 0)
 
     # migrate slots #1, #2, #3 from 127.0.0.1:7001 to 127.0.0.1:7002
     redistrib.command.migrate_slots('127.0.0.1', 7001, '127.0.0.1', 7002, [1, 2, 3])

@@ -48,10 +48,19 @@ def replicate(master_host_port, slave_host_port):
     command.replicate(master_host, master_port, slave_host, slave_port)
 
 
-def migrate_slot(src_host_port, dst_host_port, slot):
+def migrate_slots(src_host_port, dst_host_port, *slot_ranges):
     src_host, src_port = _parse_host_port(src_host_port)
     dst_host, dst_port = _parse_host_port(dst_host_port)
-    command.migrate_slot(src_host, src_port, dst_host, dst_port, slot)
+
+    slots = []
+    for rg in slot_ranges:
+        if '-' in rg:
+            begin, end = rg.split('-')
+            slots.extend(xrange(int(begin), int(end)))
+        else:
+            slots.append(int(rg))
+
+    command.migrate_slots(src_host, src_port, dst_host, dst_port, slots)
 
 
 def main():

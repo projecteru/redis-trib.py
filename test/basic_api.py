@@ -30,7 +30,7 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(range(8192, 16384),
                          nodes[('127.0.0.1', 7100)].assigned_slots)
 
-        comm.migrate_slot('127.0.0.1', 7100, '127.0.0.1', 7101, 8192)
+        comm.migrate_slots('127.0.0.1', 7100, '127.0.0.1', 7101, [8192])
 
         nodes = base.list_nodes('127.0.0.1', 7100)
         self.assertEqual(2, len(nodes))
@@ -50,8 +50,8 @@ class ApiTest(unittest.TestCase):
                          nodes[('127.0.0.1', 7100)].assigned_slots)
 
         self.assertRaisesRegexp(
-            ValueError, 'Slot not held by', comm.migrate_slot,
-            '127.0.0.1', 7100, '127.0.0.1', 7101, 8192)
+            ValueError, 'Not all slot held by', comm.migrate_slots,
+            '127.0.0.1', 7100, '127.0.0.1', 7101, [8192])
 
         self.assertRaisesRegexp(
             ValueError, 'Not all slot held by', comm.migrate_slots,
@@ -59,7 +59,7 @@ class ApiTest(unittest.TestCase):
 
         self.assertRaisesRegexp(
             ValueError, 'Two nodes are not in the same cluster',
-            comm.migrate_slot, '127.0.0.1', 7100, '127.0.0.1', 7102, 8196)
+            comm.migrate_slots, '127.0.0.1', 7100, '127.0.0.1', 7102, [8196])
 
         comm.quit_cluster('127.0.0.1', 7100)
 
@@ -92,6 +92,17 @@ class ApiTest(unittest.TestCase):
 
         comm.start_cluster_on_multi([('127.0.0.1', 7100), ('127.0.0.1', 7101),
                                      ('127.0.0.1', 7102)])
+        nodes = base.list_nodes('127.0.0.1', 7100)
+        self.assertEqual(3, len(nodes))
+        self.assertEqual(5462, len(nodes[('127.0.0.1', 7100)].assigned_slots))
+        self.assertEqual(5461, len(nodes[('127.0.0.1', 7101)].assigned_slots))
+        self.assertEqual(5461, len(nodes[('127.0.0.1', 7102)].assigned_slots))
+        comm.quit_cluster('127.0.0.1', 7100)
+        comm.quit_cluster('127.0.0.1', 7101)
+        comm.shutdown_cluster('127.0.0.1', 7102)
+
+        comm.start_cluster_on_multi([('127.0.0.1', 7100), ('127.0.0.1', 7101),
+                                     ('127.0.0.1', 7100), ('127.0.0.1', 7102)])
         nodes = base.list_nodes('127.0.0.1', 7100)
         self.assertEqual(3, len(nodes))
         self.assertEqual(5462, len(nodes[('127.0.0.1', 7100)].assigned_slots))
