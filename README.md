@@ -47,9 +47,9 @@ Migrate slots (require source node holding all the migrating slots, and the two 
 
     redis-trib.py migrate_slots SRC_HOST:PORT DST_HOST:PORT SLOT SLOT_BEGIN-SLOT_END
 
-each of "slot" argument tuple could be an integer (indicating a single slot number) or a range (begin and end, end is exclusive). For example
+each of "slot" argument tuple could be an integer (indicating a single slot number) or a range (begin and end, both inclusive). For example
 
-    redis-trib.py migrate_slots 127.0.0.1:7000 127.0.0.1:7001 0 2 4-8
+    redis-trib.py migrate_slots 127.0.0.1:7000 127.0.0.1:7001 0 2 4-7
 
 means migrate slot #0 #2 #4 #5 #6 #7 from `127.0.0.1:7000` to `127.0.0.1:7001`.
 

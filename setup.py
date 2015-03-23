@@ -1,10 +1,11 @@
 from setuptools import setup
+import redistrib
 
 _URI = 'https://github.com/neuront/redis-trib.py'
 
 setup(
     name='redis-trib',
-    version='0.2.2',
+    version=redistrib.__version__,
     author='Neuron Teckid',
     author_email='lene13@gmail.com',
     license='MIT',

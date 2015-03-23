@@ -56,7 +56,7 @@ def migrate_slots(src_host_port, dst_host_port, *slot_ranges):
     for rg in slot_ranges:
         if '-' in rg:
             begin, end = rg.split('-')
-            slots.extend(xrange(int(begin), int(end)))
+            slots.extend(xrange(int(begin), int(end) + 1))
         else:
             slots.append(int(rg))
 
