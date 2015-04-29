@@ -1,8 +1,6 @@
 from setuptools import setup
 import redistrib
 
-_URI = 'https://github.com/neuront/redis-trib.py'
-
 setup(
     name='redis-trib',
     version=redistrib.__version__,
@@ -10,10 +8,10 @@ setup(
     author_email='lene13@gmail.com',
     license='MIT',
     keywords='Redis Cluster',
-    url=_URI,
+    url=redistrib.REPO,
     description='Redis Cluster tools in Python2',
     packages=['redistrib'],
-    long_description='Visit ' + _URI + ' for details please.',
+    long_description='Visit ' + redistrib.REPO + ' for details please.',
     install_requires=[
         'hiredis',
         'retrying',

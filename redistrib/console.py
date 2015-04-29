@@ -2,6 +2,7 @@ import sys
 import logging
 
 import command
+from . import __version__, REPO
 
 
 def _parse_host_port(addr):
@@ -64,9 +65,12 @@ def migrate_slots(src_host_port, dst_host_port, *slot_ranges):
 
 
 def main():
+    print 'Redis-trib', __version__,
+    print 'Copyright (c) HunanTV Platform developers'
     if len(sys.argv) < 2:
         print >> sys.stderr, 'Usage:'
         print >> sys.stderr, '    redis-trib.py ACTION_NAME [arg0 arg1 ...]'
+        print >> sys.stderr, 'Take a look at README for more details:', REPO
         sys.exit(1)
     logging.basicConfig(level=logging.INFO)
     getattr(sys.modules[__name__], sys.argv[1])(*sys.argv[2:])

@@ -137,19 +137,9 @@ def _migr_keys(src_talker, target_host, target_port, slot):
         keys = src_talker.talk('cluster', 'getkeysinslot', slot, 10)
         if len(keys) == 0:
             return
-        for k in keys:
-            # Why 0, 15000 ? Just following existent codes
-            # > https://github.com/antirez/redis/blob/3.0/src/redis-trib.rb
-            # > #L784
-            m = src_talker.talk('migrate', target_host, target_port, k,
-                                0, 15000)
-            # don't panic when one of the keys failed to migrate, log & retry
-            if m.lower() != 'ok':
-                logging.warning(
-                    'Not OK while moving key [ %s ] in slot [ %d ]\n'
-                    '  Source node - %s:%d => Target node - %s:%d\n'
-                    'Got %s\nRetry later', k, slot, src_talker.host,
-                    src_talker.port, target_host, target_port, m)
+        src_talker.talk(
+            *sum([['migrate', target_host, target_port, k, 0, 30000]
+                  for k in keys], []))
 
 
 def _migr_slots(source_node, target_node, migrate_count, nodes):

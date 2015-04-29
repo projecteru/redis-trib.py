@@ -65,7 +65,7 @@ means migrate slot #0 #2 #4 #5 #6 #7 from `127.0.0.1:7000` to `127.0.0.1:7001`.
     # start cluster on multiple nodes, all the slots will be shared among them
     # the argument is a list of (HOST, PORT) tuples
     # for example, the following call will start a cluster on 127.0.0.1:7000 and 127.0.0.1:7001
-    redistrib.command.start_cluster([('127.0.0.1', 7000), ('127.0.0.1', 7001)])
+    redistrib.command.start_cluster_on_multi([('127.0.0.1', 7000), ('127.0.0.1', 7001)])
 
     # add node 127.0.0.1:7001 to the cluster as a master
     redistrib.command.join_cluster('127.0.0.1', 7000, '127.0.0.1', 7001)

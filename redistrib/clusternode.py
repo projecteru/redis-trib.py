@@ -88,9 +88,6 @@ class Talker(object):
 
 
 class ClusterNode(object):
-    # What does each field mean in "cluster nodes" output
-    # > http://oldblog.antirez.com/post/2-4-and-other-news.html
-    # but it didn't list assigned slots / node_index
     def __init__(self, node_id, latest_know_ip_address_and_port,
                  role_in_cluster, node_id_of_master_if_it_is_a_slave,
                  last_ping_sent_time, last_pong_received_time, node_index,
