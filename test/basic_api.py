@@ -1,3 +1,4 @@
+import time
 import unittest
 from rediscluster import RedisCluster
 from redis.exceptions import ResponseError
@@ -165,3 +166,56 @@ class ApiTest(unittest.TestCase):
 
         t7100.close()
         t7101.close()
+
+    def test_join_no_load(self):
+        comm.start_cluster('127.0.0.1', 7100)
+
+        rc = RedisCluster([{'host': '127.0.0.1', 'port': 7100}])
+        rc.set('x-{h-893}', 'y')
+        rc.set('y-{h-893}', 'zzZ')
+        rc.set('z-{h-893}', 'w')
+        rc.incr('h-893')
+
+        comm.join_no_load('127.0.0.1', 7100, '127.0.0.1', 7101)
+        nodes = base.list_nodes('127.0.0.1', 7100)
+        self.assertEqual(2, len(nodes))
+        n7100 = nodes[('127.0.0.1', 7100)]
+        n7101 = nodes[('127.0.0.1', 7101)]
+
+        self.assertEqual(16384, len(n7100.assigned_slots))
+        self.assertEqual(0, len(n7101.assigned_slots))
+
+        comm.join_no_load('127.0.0.1', 7100, '127.0.0.1', 7102)
+        comm.migrate_slots('127.0.0.1', 7100, '127.0.0.1', 7101, [0])
+
+        time.sleep(2)
+        nodes = base.list_nodes('127.0.0.1', 7102)
+        self.assertEqual(3, len(nodes))
+        n7100 = nodes[('127.0.0.1', 7100)]
+        n7101 = nodes[('127.0.0.1', 7101)]
+        n7102 = nodes[('127.0.0.1', 7102)]
+
+        self.assertEqual(16383, len(n7100.assigned_slots))
+        self.assertEqual(1, len(n7101.assigned_slots))
+        self.assertEqual(0, len(n7102.assigned_slots))
+
+        try:
+            t = n7101.talker()
+            m = t.talk('get', 'h-893')
+            self.assertEqual('1', m)
+
+            m = t.talk('get', 'y-{h-893}')
+            self.assertEqual('zzZ', m)
+
+            comm.quit_cluster('127.0.0.1', 7102)
+            comm.quit_cluster('127.0.0.1', 7101)
+            t = n7100.talker()
+
+            rc.delete('x-{h-893}')
+            rc.delete('y-{h-893}')
+            rc.delete('z-{h-893}')
+            rc.delete('h-893')
+            comm.shutdown_cluster('127.0.0.1', 7100)
+        finally:
+            n7100.close()
+            n7101.close()

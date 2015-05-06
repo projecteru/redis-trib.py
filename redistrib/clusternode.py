@@ -22,28 +22,29 @@ def encode(value, encoding='utf-8'):
     return value
 
 
-def pack_command(command, *args):
+def squash_commands(commands):
     output = []
-    if ' ' in command:
-        args = tuple([s for s in command.split(' ')]) + args
-    else:
-        args = (command,) + args
+    buf = ''
 
-    buff = SYM_EMPTY.join((SYM_STAR, str(len(args)), SYM_CRLF))
+    for c in commands:
+        buf = SYM_EMPTY.join((buf, SYM_STAR, str(len(c)), SYM_CRLF))
 
-    for arg in map(encode, args):
-        if len(buff) > 6000 or len(arg) > 6000:
-            buff = SYM_EMPTY.join((buff, SYM_DOLLAR, str(len(arg)), SYM_CRLF))
-            output.append(buff)
-            output.append(arg)
-            buff = SYM_CRLF
-        else:
-            buff = SYM_EMPTY.join((buff, SYM_DOLLAR, str(len(arg)),
-                                   SYM_CRLF, arg, SYM_CRLF))
-    output.append(buff)
+        for arg in map(encode, c):
+            if len(buf) > 6000 or len(arg) > 6000:
+                output.append(SYM_EMPTY.join((buf, SYM_DOLLAR, str(len(arg)),
+                                              SYM_CRLF)))
+                output.append(arg)
+                buf = SYM_CRLF
+            else:
+                buf = SYM_EMPTY.join((buf, SYM_DOLLAR, str(len(arg)),
+                                      SYM_CRLF, arg, SYM_CRLF))
+    output.append(buf)
     return output
 
-CMD_PING = pack_command('ping')
+
+def pack_command(command, *args):
+    return squash_commands([(command,) + args])
+
 CMD_INFO = pack_command('info')
 CMD_CLUSTER_NODES = pack_command('cluster', 'nodes')
 CMD_CLUSTER_INFO = pack_command('cluster', 'info')
@@ -82,6 +83,9 @@ class Talker(object):
 
     def talk(self, *args):
         return self.talk_raw(pack_command(*args))
+
+    def talk_bulk(self, cmd_list):
+        return self.talk_raw(squash_commands(cmd_list))
 
     def close(self):
         return self.sock.close()

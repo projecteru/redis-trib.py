@@ -5,7 +5,7 @@ from retrying import retry
 
 from exceptions import RedisStatusError
 from clusternode import Talker, ClusterNode, base_balance_plan
-from clusternode import CMD_PING, CMD_INFO, CMD_CLUSTER_NODES, CMD_CLUSTER_INFO
+from clusternode import CMD_INFO, CMD_CLUSTER_NODES, CMD_CLUSTER_INFO
 
 
 PAT_CLUSTER_ENABLED = re.compile('cluster_enabled:([01])')
@@ -23,10 +23,6 @@ def _valid_node_info(n):
 
 
 def _ensure_cluster_status_unset(t):
-    m = t.talk_raw(CMD_PING)
-    if m.lower() != 'pong':
-        raise hiredis.ProtocolError('Expect pong but recv: %s' % m)
-
     m = t.talk_raw(CMD_INFO)
     logging.debug('Ask `info` Rsp %s', m)
     cluster_enabled = PAT_CLUSTER_ENABLED.findall(m)
@@ -52,10 +48,6 @@ def _ensure_cluster_status_set_at(host, port):
 
 
 def _ensure_cluster_status_set(t):
-    m = t.talk_raw(CMD_PING)
-    if m.lower() != 'pong':
-        raise hiredis.ProtocolError('Expect pong but recv: %s' % m)
-
     m = t.talk_raw(CMD_INFO)
     logging.debug('Ask `info` Rsp %s', m)
     cluster_enabled = PAT_CLUSTER_ENABLED.findall(m)
@@ -137,9 +129,8 @@ def _migr_keys(src_talker, target_host, target_port, slot):
         keys = src_talker.talk('cluster', 'getkeysinslot', slot, 10)
         if len(keys) == 0:
             return
-        src_talker.talk(
-            *sum([['migrate', target_host, target_port, k, 0, 30000]
-                  for k in keys], []))
+        src_talker.talk_bulk(
+            [['migrate', target_host, target_port, k, 0, 30000] for k in keys])
 
 
 def _migr_slots(source_node, target_node, migrate_count, nodes):
@@ -159,6 +150,12 @@ def _migr_one_slot(source_node, target_node, slot, nodes):
                 'Source node - %s:%d' % (source_node.host, source_node.port),
                 'Target node - %s:%d' % (target_node.host, target_node.port),
                 'Got %s' % m]))
+
+    @retry(stop_max_attempt_number=16, wait_fixed=100)
+    def setslot_stable(talker, slot, node_id):
+        m = talker.talk('cluster', 'setslot', slot, 'node', node_id)
+        if m.lower() != 'ok':
+            raise hiredis.ReplyError(m)
 
     source_talker = source_node.talker()
     target_talker = target_node.talker()
@@ -183,16 +180,11 @@ def _migr_one_slot(source_node, target_node, slot, nodes):
 
     _migr_keys(source_talker, target_node.host, target_node.port, slot)
 
-    for node in nodes:
-        if node.node_id == source_node.node_id:
-            continue
-        t = node.talker()
-        expect_talk_ok(t.talk(
-            'cluster', 'setslot', slot, 'node', target_node.node_id), slot)
-    expect_talk_ok(source_talker.talk(
-        'cluster', 'setslot', slot, 'node', target_node.node_id), slot)
-    expect_talk_ok(target_talker.talk(
-        'cluster', 'setslot', slot, 'node', target_node.node_id), slot)
+    try:
+        for node in nodes:
+            setslot_stable(node.talker(), slot, target_node.node_id)
+    except hiredis.ReplyError, e:
+        expect_talk_ok(e.message, slot)
 
 
 def _join_to_cluster(cluster_host, cluster_port, newin_talker):
