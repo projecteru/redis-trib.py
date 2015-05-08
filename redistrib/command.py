@@ -181,6 +181,7 @@ def _migr_one_slot(source_node, target_node, slot, nodes):
     _migr_keys(source_talker, target_node.host, target_node.port, slot)
 
     try:
+        setslot_stable(target_talker, slot, target_node.node_id)
         for node in nodes:
             setslot_stable(node.talker(), slot, target_node.node_id)
     except hiredis.ReplyError, e:

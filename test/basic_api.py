@@ -188,7 +188,6 @@ class ApiTest(unittest.TestCase):
         comm.join_no_load('127.0.0.1', 7100, '127.0.0.1', 7102)
         comm.migrate_slots('127.0.0.1', 7100, '127.0.0.1', 7101, [0])
 
-        time.sleep(2)
         nodes = base.list_nodes('127.0.0.1', 7102)
         self.assertEqual(3, len(nodes))
         n7100 = nodes[('127.0.0.1', 7100)]
