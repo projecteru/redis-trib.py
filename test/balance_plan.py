@@ -1,6 +1,5 @@
-import unittest
-
 import redistrib.clusternode
+import base
 
 
 class FakeNode(object):
@@ -10,7 +9,7 @@ class FakeNode(object):
         self.role_in_cluster = 'master'
 
 
-class BalancePlanTest(unittest.TestCase):
+class BalancePlanTest(base.TestCase):
     def test_default_balance_plan(self):
         r = redistrib.clusternode.base_balance_plan([
             FakeNode('a', 16384), FakeNode('b', 0),

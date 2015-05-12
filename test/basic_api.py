@@ -1,5 +1,4 @@
 import time
-import unittest
 from rediscluster import RedisCluster
 from redis.exceptions import ResponseError
 
@@ -9,7 +8,7 @@ from redistrib.exceptions import RedisStatusError
 from redistrib.clusternode import Talker, CMD_CLUSTER_NODES
 
 
-class ApiTest(unittest.TestCase):
+class ApiTest(base.TestCase):
     def test_api(self):
         comm.start_cluster('127.0.0.1', 7100)
         rc = RedisCluster([{'host': '127.0.0.1', 'port': 7100}])

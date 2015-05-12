@@ -7,15 +7,12 @@ from exceptions import RedisStatusError
 from clusternode import Talker, ClusterNode, base_balance_plan
 from clusternode import CMD_INFO, CMD_CLUSTER_NODES, CMD_CLUSTER_INFO
 
-
+SLOT_COUNT = 16384
 PAT_CLUSTER_ENABLED = re.compile('cluster_enabled:([01])')
 PAT_CLUSTER_STATE = re.compile('cluster_state:([a-z]+)')
 PAT_CLUSTER_SLOT_ASSIGNED = re.compile('cluster_slots_assigned:([0-9]+)')
-PAT_MIGRATING_IN = re.compile(r'\[(?P<slot>[0-9]+)-<-(?P<id>\w+)\]$')
-PAT_MIGRATING_OUT = re.compile(r'\[(?P<slot>[0-9]+)->-(?P<id>\w+)\]$')
-
-# One Redis cluster requires at least 16384 slots
-SLOT_COUNT = 16384
+PAT_MIGRATING_IN = re.compile(r'\[([0-9]+)-<-(\w+)\]')
+PAT_MIGRATING_OUT = re.compile(r'\[([0-9]+)->-(\w+)\]')
 
 
 def _valid_node_info(n):
@@ -105,20 +102,24 @@ def start_cluster_on_multi(host_port_list):
             logging.info('Instance at %s:%d checked', t.host, t.port)
 
         first_talker = talkers[0]
+        for i, t in enumerate(talkers[1:]):
+            t.talk('cluster', 'meet', first_talker.host, first_talker.port)
+
         slots_each = SLOT_COUNT / len(talkers)
         slots_residue = SLOT_COUNT - slots_each * len(talkers)
         first_node_slots = slots_residue + slots_each
+
         first_talker.talk('cluster', 'addslots', *xrange(first_node_slots))
         logging.info('Add %d slots to %s:%d', slots_residue + slots_each,
                      first_talker.host, first_talker.port)
         for i, t in enumerate(talkers[1:]):
-            t.talk('cluster', 'meet', first_talker.host, first_talker.port)
             t.talk('cluster', 'addslots', *xrange(
                 i * slots_each + first_node_slots,
                 (i + 1) * slots_each + first_node_slots))
             logging.info('Add %d slots to %s:%d', slots_each, t.host, t.port)
 
-        _poll_check_status(first_talker)
+        for t in talkers:
+            _poll_check_status(t)
     finally:
         for t in talkers:
             t.close()
@@ -181,7 +182,7 @@ def _migr_one_slot(source_node, target_node, slot, nodes):
     _migr_keys(source_talker, target_node.host, target_node.port, slot)
 
     try:
-        setslot_stable(target_talker, slot, target_node.node_id)
+        setslot_stable(source_talker, slot, target_node.node_id)
         for node in nodes:
             setslot_stable(node.talker(), slot, target_node.node_id)
     except hiredis.ReplyError, e:
@@ -313,13 +314,10 @@ def fix_migrating(host, port):
             node.host = node.host or host
             nodes[node.node_id] = node
 
-            search = PAT_MIGRATING_IN.search(node_info)
-            if search is not None:
-                mig_dsts.append((node, search.groupdict()))
-
-            search = PAT_MIGRATING_OUT.search(node_info)
-            if search is not None:
-                mig_srcs.append((node, search.groupdict()))
+            mig_dsts.extend([(node, {'slot': g[0], 'id': g[1]})
+                             for g in PAT_MIGRATING_IN.findall(node_info)])
+            mig_srcs.extend([(node, {'slot': g[0], 'id': g[1]})
+                             for g in PAT_MIGRATING_OUT.findall(node_info)])
 
         for n, args in mig_dsts:
             node_id = args['id']

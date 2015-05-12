@@ -1,5 +1,4 @@
 import time
-import unittest
 from rediscluster import RedisCluster
 from redis.exceptions import ResponseError
 
@@ -8,7 +7,7 @@ import redistrib.command as comm
 from redistrib.clusternode import Talker, CMD_CLUSTER_NODES
 
 
-class ReplicationTest(unittest.TestCase):
+class ReplicationTest(base.TestCase):
     def test_api(self):
         comm.start_cluster('127.0.0.1', 7100)
         comm.join_cluster('127.0.0.1', 7100, '127.0.0.1', 7101)
