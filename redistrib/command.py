@@ -16,7 +16,7 @@ PAT_MIGRATING_OUT = re.compile(r'\[([0-9]+)->-(\w+)\]')
 
 
 def _valid_node_info(n):
-    return len(n) != 0 and 'fail' not in n
+    return len(n) != 0 and 'fail' not in n and 'handshake' not in n
 
 
 def _ensure_cluster_status_unset(t):
@@ -268,7 +268,11 @@ def quit_cluster(host, port):
         logging.info('Migrated for %s / Broadcast a `forget`', myself.node_id)
         for node in nodes:
             tk = node.talker()
-            tk.talk('cluster', 'forget', myself.node_id)
+            try:
+                tk.talk('cluster', 'forget', myself.node_id)
+            except hiredis.ReplyError, e:
+                if 'Unknown node' not in e.message:
+                    raise
         t.talk('cluster', 'reset')
     finally:
         t.close()

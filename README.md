@@ -128,3 +128,4 @@ As crude examples, you could refer to `redistrib.clusternode.BaseBalancer` and `
 * `role_in_cluster`: `"master"` or `"slave"`
 * `master_id`: master's `node_id` if it's a slave
 * `assigned_slots`: a list of assigned slots if it's a master; it won't contain slots being migrated
+* `slots_migrating`: boolean value for whether there are any slot(s) migrating or importing on this node
