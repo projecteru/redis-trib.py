@@ -51,14 +51,14 @@ CMD_CLUSTER_INFO = pack_command('cluster', 'info')
 
 
 class Talker(object):
-    def __init__(self, host, port):
+    def __init__(self, host, port, timeout=5):
         self.host = host
         self.port = port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.reader = hiredis.Reader()
         self.last_raw_message = ''
 
-        self.sock.settimeout(8)
+        self.sock.settimeout(timeout)
         logging.debug('Connect to %s:%d', host, port)
         self.sock.connect((host, port))
 

@@ -43,6 +43,11 @@ def fix(host_port):
     command.fix_migrating(*_parse_host_port(host_port))
 
 
+def rescue(host_port, subs_host_port):
+    host, port = _parse_host_port(host_port)
+    command.rescue_cluster(host, port, *_parse_host_port(subs_host_port))
+
+
 def replicate(master_host_port, slave_host_port):
     master_host, master_port = _parse_host_port(master_host_port)
     slave_host, slave_port = _parse_host_port(slave_host_port)

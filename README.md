@@ -53,6 +53,12 @@ each of "slot" argument tuple could be an integer (indicating a single slot numb
 
 means migrate slot #0 #2 #4 #5 #6 #7 from `127.0.0.1:7000` to `127.0.0.1:7001`.
 
+Rescue a failed cluster, specify host, port of one node in the cluster, and a free node
+
+    redis-trib.py rescue 127.0.0.1:7000 127.0.0.1:8000
+
+The program would check which slots are failed in the cluster which contains `127.0.0.1:7000`, and add them to `127.0.0.1:8000`.
+
 ## Python APIs
 
 ### Cluster Operation APIs
@@ -90,6 +96,11 @@ means migrate slot #0 #2 #4 #5 #6 #7 from `127.0.0.1:7000` to `127.0.0.1:7001`.
 
     # migrate slots #1, #2, #3 from 127.0.0.1:7001 to 127.0.0.1:7002
     redistrib.command.migrate_slots('127.0.0.1', 7001, '127.0.0.1', 7002, [1, 2, 3])
+
+    # rescue a failed cluster
+    # 127.0.0.1:7000 is one of the nodes that is still alive in the cluster
+    # and 127.0.0.1:8000 is the node that would take care of all failed slots
+    redistrib.command.rescue_cluster('127.0.0.1', 7000, '127.0.0.1', 8000)
 
 See also https://github.com/antirez/redis/blob/3.0/src/redis-trib.rb
 

@@ -56,14 +56,14 @@ def _ensure_cluster_status_set(t):
     logging.debug('Ask `cluster info` Rsp %s', m)
     cluster_state = PAT_CLUSTER_STATE.findall(m)
     cluster_slot_assigned = PAT_CLUSTER_SLOT_ASSIGNED.findall(m)
-    if cluster_state[0] != 'ok':
+    if cluster_state[0] != 'ok' and int(cluster_slot_assigned[0]) == 0:
         raise hiredis.ProtocolError(
             'Node %s:%d is not in a cluster' % (t.host, t.port))
 
 
 # Redis instance responses to clients BEFORE changing its 'cluster_state'
 #   just retry some times, it should become OK
-@retry(stop_max_attempt_number=16, wait_fixed=1000)
+@retry(stop_max_attempt_number=64, wait_fixed=500)
 def _poll_check_status(t):
     m = t.talk_raw(CMD_CLUSTER_INFO)
     logging.debug('Ask `cluster info` Rsp %s', m)
@@ -446,3 +446,40 @@ def migrate_slots(src_host, src_port, dst_host, dst_port, slots):
                 _migr_one_slot(myself, n, s, nodes)
             return
     raise ValueError('Two nodes are not in the same cluster')
+
+
+def rescue_cluster(host, port, subst_host, subst_port):
+    failed_slots = set(xrange(SLOT_COUNT))
+    t = None
+    s = None
+    try:
+        t = Talker(host, port)
+        _ensure_cluster_status_set(t)
+        for node in _list_masters(t)[0]:
+            failed_slots -= set(node.assigned_slots)
+        if len(failed_slots) == 0:
+            logging.info('No need to rescue cluster at %s:%d', host, port)
+            return
+
+        s = Talker(subst_host, subst_port)
+        _ensure_cluster_status_unset(s)
+
+        m = s.talk('cluster', 'meet', host, port)
+        logging.debug('Ask `cluster meet` Rsp %s', m)
+        if m.lower() != 'ok':
+            raise RedisStatusError('Unexpected reply after MEET: %s' % m)
+
+        m = s.talk('cluster', 'addslots', *failed_slots)
+        logging.debug('Ask `cluster addslots` Rsp %s', m)
+
+        if m.lower() != 'ok':
+            raise RedisStatusError('Unexpected reply after ADDSLOTS: %s' % m)
+
+        _poll_check_status(s)
+        logging.info('Instance at %s:%d serves %d slots to rescue the cluster',
+                     subst_host, subst_port, len(failed_slots))
+    finally:
+        if t is not None:
+            t.close()
+        if s is not None:
+            s.close()
