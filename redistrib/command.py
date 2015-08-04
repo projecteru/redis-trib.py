@@ -126,21 +126,29 @@ def start_cluster_on_multi(host_port_list):
 
 
 def _migr_keys(src_talker, target_host, target_port, slot):
+    key_count = 0
     while True:
         keys = src_talker.talk('cluster', 'getkeysinslot', slot, 10)
         if len(keys) == 0:
-            return
+            return key_count
+        key_count += len(keys)
         src_talker.talk_bulk(
             [['migrate', target_host, target_port, k, 0, 30000] for k in keys])
 
 
-def _migr_slots(source_node, target_node, migrate_count, nodes):
+def _migr_slots(source_node, target_node, slots, nodes):
     logging.info(
-        'Migrating %d slots from %s<%s:%d> to %s<%s:%d>', migrate_count,
+        'Migrating %d slots from %s<%s:%d> to %s<%s:%d>', len(slots),
         source_node.node_id, source_node.host, source_node.port,
         target_node.node_id, target_node.host, target_node.port)
-    for slot in source_node.assigned_slots[:migrate_count]:
-        _migr_one_slot(source_node, target_node, slot, nodes)
+    key_count = 0
+    for slot in slots:
+        key_count += _migr_one_slot(source_node, target_node, slot, nodes)
+    logging.info(
+        'Migrated: %d slots %d keys from %s<%s:%d> to %s<%s:%d>',
+        len(slots), key_count,
+        source_node.node_id, source_node.host, source_node.port,
+        target_node.node_id, target_node.host, target_node.port)
 
 
 def _migr_one_slot(source_node, target_node, slot, nodes):
@@ -179,14 +187,14 @@ def _migr_one_slot(source_node, target_node, slot, nodes):
         if 'not the owner of' not in e.message:
             raise
 
-    _migr_keys(source_talker, target_node.host, target_node.port, slot)
-
+    keys = _migr_keys(source_talker, target_node.host, target_node.port, slot)
     try:
         setslot_stable(source_talker, slot, target_node.node_id)
         for node in nodes:
             setslot_stable(node.talker(), slot, target_node.node_id)
     except hiredis.ReplyError, e:
         expect_talk_ok(e.message, slot)
+    return keys
 
 
 def _join_to_cluster(cluster_host, cluster_port, newin_talker):
@@ -219,7 +227,7 @@ def join_cluster(cluster_host, cluster_port, newin_host, newin_port,
         nodes = _list_nodes(t, default_host=newin_host)[0]
 
         for source, target, count in balance_plan(nodes, balancer):
-            _migr_slots(source, target, count, nodes)
+            _migr_slots(source, target, source.assigned_slots[:count], nodes)
     finally:
         t.close()
         for n in nodes:
@@ -249,10 +257,11 @@ def _check_master_and_migrate_slots(nodes, myself):
 
     mig_slots_to_each = len(myself.assigned_slots) / len(other_masters)
     for node in other_masters[:-1]:
-        _migr_slots(myself, node, mig_slots_to_each, nodes)
+        _migr_slots(myself, node, myself.assigned_slots[:mig_slots_to_each],
+                    nodes)
         del myself.assigned_slots[:mig_slots_to_each]
     node = other_masters[-1]
-    _migr_slots(myself, node, len(myself.assigned_slots), nodes)
+    _migr_slots(myself, node, myself.assigned_slots, nodes)
 
 
 def quit_cluster(host, port):
@@ -440,11 +449,7 @@ def migrate_slots(src_host, src_port, dst_host, dst_port, slots):
         raise ValueError('Not all slot held by %s:%d' % (src_host, src_port))
     for n in nodes:
         if n.host == dst_host and n.port == dst_port:
-            logging.info('Migrating %d slots from %s:%d to %s:%d', len(slots),
-                         src_host, src_port, dst_host, dst_port)
-            for s in slots:
-                _migr_one_slot(myself, n, s, nodes)
-            return
+            return _migr_slots(myself, n, slots, nodes)
     raise ValueError('Two nodes are not in the same cluster')
 
 
