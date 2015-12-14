@@ -105,6 +105,12 @@ class Talker(object):
     def close(self):
         return self.sock.close()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, except_type, except_obj, tb):
+        self.close()
+        return False
 
 class ClusterNode(object):
     def __init__(self, node_id, latest_know_ip_address_and_port,

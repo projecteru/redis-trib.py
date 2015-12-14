@@ -36,14 +36,6 @@ def _ensure_cluster_status_unset(t):
             'Node %s:%d is already in a cluster' % (t.host, t.port))
 
 
-def _ensure_cluster_status_set_at(host, port):
-    t = Talker(host, port)
-    try:
-        _ensure_cluster_status_set(t)
-    finally:
-        t.close()
-
-
 def _ensure_cluster_status_set(t):
     m = t.talk_raw(CMD_INFO)
     logging.debug('Ask `info` Rsp %s', m)
@@ -75,9 +67,7 @@ def _poll_check_status(t):
 
 
 def start_cluster(host, port):
-    t = Talker(host, port)
-
-    try:
+    with Talker(host, port) as t:
         _ensure_cluster_status_unset(t)
 
         m = t.talk('cluster', 'addslots', *xrange(SLOT_COUNT))
@@ -88,8 +78,6 @@ def start_cluster(host, port):
         _poll_check_status(t)
         logging.info('Instance at %s:%d started as a standalone cluster',
                      host, port)
-    finally:
-        t.close()
 
 
 def start_cluster_on_multi(host_port_list):
@@ -197,49 +185,39 @@ def _migr_one_slot(source_node, target_node, slot, nodes):
     return keys
 
 
-def _join_to_cluster(cluster_host, cluster_port, newin_talker):
-    _ensure_cluster_status_set_at(cluster_host, cluster_port)
-    _ensure_cluster_status_unset(newin_talker)
+def _join_to_cluster(clst, new):
+    _ensure_cluster_status_set(clst)
+    _ensure_cluster_status_unset(new)
 
-    m = newin_talker.talk('cluster', 'meet', cluster_host, cluster_port)
+    m = clst.talk('cluster', 'meet', new.host, new.port)
     logging.debug('Ask `cluster meet` Rsp %s', m)
     if m.lower() != 'ok':
         raise RedisStatusError('Unexpected reply after MEET: %s' % m)
-    _poll_check_status(newin_talker)
+    _poll_check_status(new)
 
 
 def join_cluster(cluster_host, cluster_port, newin_host, newin_port,
                  balancer=None, balance_plan=base_balance_plan):
-    nodes = []
-    t = Talker(newin_host, newin_port)
-    try:
-        _join_to_cluster(cluster_host, cluster_port, t)
-        logging.info('Instance at %s:%d has joined %s:%d; now balancing slots',
-                     newin_host, newin_port, cluster_host, cluster_port)
-
-        m = t.talk_raw(CMD_CLUSTER_INFO)
-        logging.debug('Ask `cluster info` Rsp %s', m)
-        cluster_state = PAT_CLUSTER_STATE.findall(m)
-        if cluster_state[0] != 'ok':
-            raise hiredis.ProtocolError(
-                'Node %s:%d is already in a cluster' % (t.host, t.port))
-        slots = int(PAT_CLUSTER_SLOT_ASSIGNED.findall(m)[0])
-        nodes = _list_nodes(t, default_host=newin_host)[0]
-
-        for source, target, count in balance_plan(nodes, balancer):
-            _migr_slots(source, target, source.assigned_slots[:count], nodes)
-    finally:
-        t.close()
-        for n in nodes:
-            n.close()
+    with Talker(newin_host, newin_port) as t, \
+         Talker(cluster_host, cluster_port) as cnode:
+        _join_to_cluster(cnode, t)
+        nodes = []
+        try:
+            logging.info(
+                'Instance at %s:%d has joined %s:%d; now balancing slots',
+                newin_host, newin_port, cluster_host, cluster_port)
+            nodes = _list_nodes(t, default_host=newin_host)[0]
+            for src, dst, count in balance_plan(nodes, balancer):
+                _migr_slots(src, dst, src.assigned_slots[:count], nodes)
+        finally:
+            for n in nodes:
+                n.close()
 
 
 def join_no_load(cluster_host, cluster_port, newin_host, newin_port):
-    t = Talker(newin_host, newin_port)
-    try:
-        _join_to_cluster(cluster_host, cluster_port, t)
-    finally:
-        t.close()
+    with Talker(newin_host, newin_port) as t, \
+         Talker(cluster_host, cluster_port) as c:
+        _join_to_cluster(c, t)
 
 
 def _check_master_and_migrate_slots(nodes, myself):
@@ -292,8 +270,7 @@ def quit_cluster(host, port):
 
 
 def shutdown_cluster(host, port):
-    t = Talker(host, port)
-    try:
+    with Talker(host, port) as t:
         _ensure_cluster_status_set(t)
         myself = None
         m = t.talk_raw(CMD_CLUSTER_NODES)
@@ -308,8 +285,6 @@ def shutdown_cluster(host, port):
                 raise RedisStatusError('Cluster containing keys')
             raise
         logging.debug('Ask `cluster delslots` Rsp %s', m)
-    finally:
-        t.close()
 
 
 def fix_migrating(host, port):
@@ -367,16 +342,14 @@ def _check_slave(slave_host, slave_port, t):
 
 
 def replicate(master_host, master_port, slave_host, slave_port):
-    master_talker = None
-    t = Talker(slave_host, slave_port)
-    try:
-        master_talker = Talker(master_host, master_port)
+    with Talker(slave_host, slave_port) as t, \
+         Talker(master_host, master_port) as master_talker:
         _ensure_cluster_status_set(master_talker)
         myself = _list_nodes(master_talker)[1]
         myid = (myself.node_id if myself.role_in_cluster == 'master'
                 else myself.master_id)
 
-        _join_to_cluster(master_host, master_port, t)
+        _join_to_cluster(master_talker, t)
         logging.info('Instance at %s:%d has joined %s:%d; now set replica',
                      slave_host, slave_port, master_host, master_port)
 
@@ -387,10 +360,6 @@ def replicate(master_host, master_port, slave_host, slave_port):
         _check_slave(slave_host, slave_port, master_talker)
         logging.info('Instance at %s:%d set as replica to %s',
                      slave_host, slave_port, myid)
-    finally:
-        t.close()
-        if master_talker is not None:
-            master_talker.close()
 
 
 def _list_nodes(talker, default_host=None, filter_func=lambda node: True):
@@ -419,29 +388,20 @@ def _list_masters(talker, default_host=None):
 
 
 def list_nodes(host, port, default_host=None):
-    t = Talker(host, port)
-    try:
+    with Talker(host, port) as t:
         return _list_nodes(t, default_host or host)
-    finally:
-        t.close()
 
 
 def list_masters(host, port, default_host=None):
-    t = Talker(host, port)
-    try:
+    with Talker(host, port) as t:
         return _list_masters(t, default_host or host)
-    finally:
-        t.close()
 
 
 def migrate_slots(src_host, src_port, dst_host, dst_port, slots):
     if src_host == dst_host and src_port == dst_port:
         raise ValueError('Same node')
-    t = Talker(src_host, src_port)
-    try:
+    with Talker(src_host, src_port) as t:
         nodes, myself = _list_masters(t, src_host)
-    finally:
-        t.close()
 
     slots = set(slots)
     logging.debug('Migrating %s', slots)
@@ -455,10 +415,7 @@ def migrate_slots(src_host, src_port, dst_host, dst_port, slots):
 
 def rescue_cluster(host, port, subst_host, subst_port):
     failed_slots = set(xrange(SLOT_COUNT))
-    t = None
-    s = None
-    try:
-        t = Talker(host, port)
+    with Talker(host, port) as t:
         _ensure_cluster_status_set(t)
         for node in _list_masters(t)[0]:
             failed_slots -= set(node.assigned_slots)
@@ -466,25 +423,22 @@ def rescue_cluster(host, port, subst_host, subst_port):
             logging.info('No need to rescue cluster at %s:%d', host, port)
             return
 
-        s = Talker(subst_host, subst_port)
-        _ensure_cluster_status_unset(s)
+        with Talker(subst_host, subst_port) as s:
+            _ensure_cluster_status_unset(s)
 
-        m = s.talk('cluster', 'meet', host, port)
-        logging.debug('Ask `cluster meet` Rsp %s', m)
-        if m.lower() != 'ok':
-            raise RedisStatusError('Unexpected reply after MEET: %s' % m)
+            m = s.talk('cluster', 'meet', host, port)
+            logging.debug('Ask `cluster meet` Rsp %s', m)
+            if m.lower() != 'ok':
+                raise RedisStatusError('Unexpected reply after MEET: %s' % m)
 
-        m = s.talk('cluster', 'addslots', *failed_slots)
-        logging.debug('Ask `cluster addslots` Rsp %s', m)
+            m = s.talk('cluster', 'addslots', *failed_slots)
+            logging.debug('Ask `cluster addslots` Rsp %s', m)
 
-        if m.lower() != 'ok':
-            raise RedisStatusError('Unexpected reply after ADDSLOTS: %s' % m)
+            if m.lower() != 'ok':
+                raise RedisStatusError(
+                    'Unexpected reply after ADDSLOTS: %s' % m)
 
-        _poll_check_status(s)
-        logging.info('Instance at %s:%d serves %d slots to rescue the cluster',
-                     subst_host, subst_port, len(failed_slots))
-    finally:
-        if t is not None:
-            t.close()
-        if s is not None:
-            s.close()
+            _poll_check_status(s)
+            logging.info(
+                'Instance at %s:%d serves %d slots to rescue the cluster',
+                subst_host, subst_port, len(failed_slots))
