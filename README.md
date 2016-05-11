@@ -66,12 +66,16 @@ The program would check which slots are failed in the cluster which contains `12
     import redistrib.command
 
     # start cluster at node 127.0.0.1:7000
-    redistrib.command.start_cluster('127.0.0.1', 7000)
+    # this API will run the "cluster addslots" command on the Redis server;
+    #   you can limit the number of slots added to the Redis in each command
+    #   by default, all 16384 slots are added at once
+    redistrib.command.start_cluster('127.0.0.1', 7000, max_slots=16384)
 
     # start cluster on multiple nodes, all the slots will be shared among them
-    # the argument is a list of (HOST, PORT) tuples
+    # the first argument is a list of (HOST, PORT) tuples
     # for example, the following call will start a cluster on 127.0.0.1:7000 and 127.0.0.1:7001
-    redistrib.command.start_cluster_on_multi([('127.0.0.1', 7000), ('127.0.0.1', 7001)])
+    # the second argument is the same as "max_slots" in "start_cluster" API
+    redistrib.command.start_cluster_on_multi([('127.0.0.1', 7000), ('127.0.0.1', 7001)], max_slots=16384)
 
     # add node 127.0.0.1:7001 to the cluster as a master
     redistrib.command.join_cluster('127.0.0.1', 7000, '127.0.0.1', 7001)

@@ -81,6 +81,23 @@ class ApiTest(base.TestCase):
 
         self.assertRaisesRegexp(ResponseError, 'CLUSTERDOWN .*', rc.get, 'key')
 
+    def test_start_with_max_slots_set(self):
+        comm.start_cluster('127.0.0.1', 7100, max_slots=7000)
+        rc = RedisCluster([{'host': '127.0.0.1', 'port': 7100}])
+        rc.set('key', 'value')
+        self.assertEqual('value', rc.get('key'))
+        rc.delete('key')
+        comm.shutdown_cluster('127.0.0.1', 7100)
+
+        comm.start_cluster_on_multi([('127.0.0.1', 7100), ('127.0.0.1', 7101)],
+                                    max_slots=7000)
+        rc = RedisCluster([{'host': '127.0.0.1', 'port': 7100}])
+        rc.set('key', 'value')
+        self.assertEqual('value', rc.get('key'))
+        rc.delete('key')
+        comm.quit_cluster('127.0.0.1', 7101)
+        comm.shutdown_cluster('127.0.0.1', 7100)
+
     def test_start_multi(self):
         comm.start_cluster_on_multi([('127.0.0.1', 7100), ('127.0.0.1', 7101)])
         nodes = base.list_nodes('127.0.0.1', 7100)

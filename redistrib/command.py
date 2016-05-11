@@ -66,21 +66,31 @@ def _poll_check_status(t):
         raise RedisStatusError('Unexpected status: %s' % m)
 
 
-def start_cluster(host, port):
-    with Talker(host, port) as t:
-        _ensure_cluster_status_unset(t)
-
-        m = t.talk('cluster', 'addslots', *xrange(SLOT_COUNT))
+def _add_slots(t, begin, end, max_slots):
+    def addslots(t, begin, end):
+        m = t.talk('cluster', 'addslots', *xrange(begin, end))
         logging.debug('Ask `cluster addslots` Rsp %s', m)
         if m.lower() != 'ok':
             raise RedisStatusError('Unexpected reply after ADDSLOTS: %s' % m)
 
+    i = begin + max_slots
+    while i < end:
+        addslots(t, begin, i)
+        begin = i
+        i += max_slots
+    addslots(t, begin, end)
+
+
+def start_cluster(host, port, max_slots=SLOT_COUNT):
+    with Talker(host, port) as t:
+        _ensure_cluster_status_unset(t)
+        _add_slots(t, 0, SLOT_COUNT, max_slots)
         _poll_check_status(t)
         logging.info('Instance at %s:%d started as a standalone cluster',
                      host, port)
 
 
-def start_cluster_on_multi(host_port_list):
+def start_cluster_on_multi(host_port_list, max_slots=SLOT_COUNT):
     talkers = []
     try:
         for host, port in set(host_port_list):
@@ -97,15 +107,13 @@ def start_cluster_on_multi(host_port_list):
         slots_residue = SLOT_COUNT - slots_each * len(talkers)
         first_node_slots = slots_residue + slots_each
 
-        first_talker.talk('cluster', 'addslots', *xrange(first_node_slots))
+        _add_slots(first_talker, 0, first_node_slots, max_slots)
         logging.info('Add %d slots to %s:%d', slots_residue + slots_each,
                      first_talker.host, first_talker.port)
         for i, t in enumerate(talkers[1:]):
-            t.talk('cluster', 'addslots', *xrange(
-                i * slots_each + first_node_slots,
-                (i + 1) * slots_each + first_node_slots))
+            _add_slots(t, i * slots_each + first_node_slots,
+                       (i + 1) * slots_each + first_node_slots, max_slots)
             logging.info('Add %d slots to %s:%d', slots_each, t.host, t.port)
-
         for t in talkers:
             _poll_check_status(t)
     finally:
