@@ -49,9 +49,15 @@ help:
 	@echo "  clean     remove temporary files created by build tools"
 	@echo "  cleanmeta removes all META-* and egg-info/ files created by build tools"	
 	@echo "  cleanall  all the above + tmp files from development tools"
+	@echo "  lint      run pylint"
 	@echo "  test      run test suite"
 	@echo "  build     build the package"
 	@echo "  install   install the package"
+
+lint:
+	@pylint setup.py
+	@pylint redistrib/*.py
+	@pylint test/*.py
 
 clean:
 	-rm -f MANIFEST
@@ -71,24 +77,28 @@ install:
 	python setup.py install
 
 start-test:clean-test
-	sleep 1
-	echo "$$REDIS_CLUSTER_NODE_CONF_A" | $(REDIS_SERVER) -
-	echo "$$REDIS_CLUSTER_NODE_CONF_B" | $(REDIS_SERVER) -
-	echo "$$REDIS_CLUSTER_NODE_CONF_C" | $(REDIS_SERVER) -
-	sleep 5
+	@echo "Wait Redis nodes start for several seconds"
+	@sleep 1
+	@echo "$$REDIS_CLUSTER_NODE_CONF_A" | $(REDIS_SERVER) -
+	@echo "$$REDIS_CLUSTER_NODE_CONF_B" | $(REDIS_SERVER) -
+	@echo "$$REDIS_CLUSTER_NODE_CONF_C" | $(REDIS_SERVER) -
+	@sleep 5
 
 clean-test:stop-test
-	rm -f /tmp/redis_cluster_node*.conf
-	rm -f dump.rdb appendonly.aof
+	@rm -f /tmp/redis_cluster_node*.conf
+	@rm -f dump.rdb appendonly.aof
 
 stop-test:
-	test -e /tmp/redis_cluster_node_a.pid && kill `cat /tmp/redis_cluster_node_a.pid` || true
-	test -e /tmp/redis_cluster_node_b.pid && kill `cat /tmp/redis_cluster_node_b.pid` || true
-	test -e /tmp/redis_cluster_node_c.pid && kill `cat /tmp/redis_cluster_node_c.pid` || true
-	rm -f /tmp/redis_cluster_node_*.conf
+	@test -e /tmp/redis_cluster_node_a.pid && kill `cat /tmp/redis_cluster_node_a.pid` || true
+	@test -e /tmp/redis_cluster_node_b.pid && kill `cat /tmp/redis_cluster_node_b.pid` || true
+	@test -e /tmp/redis_cluster_node_c.pid && kill `cat /tmp/redis_cluster_node_c.pid` || true
+	@rm -f /tmp/redis_cluster_node_*.conf
+	@echo "Redis nodes killed"
 
 test:start-test
-	python -m unittest discover -s test/ -p "*.py"
-	make stop-test
+	@echo "================="
+	@echo "| Test start .. |"
+	@python -m unittest discover -s test/ -p "*.py"
+	@make stop-test
 	@echo "================="
 	@echo "| Test done \o/ |"

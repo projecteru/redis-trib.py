@@ -1,10 +1,8 @@
 import time
 from rediscluster import RedisCluster
-from redis.exceptions import ResponseError
 
 import base
 import redistrib.command as comm
-from redistrib.clusternode import Talker, CMD_CLUSTER_NODES
 
 
 class ReplicationTest(base.TestCase):

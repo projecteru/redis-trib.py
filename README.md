@@ -5,59 +5,109 @@
 
 # Usage
 
-WARNING: The following console commands or APIs not support simultaneous operations on one cluster.
+NOTE: The following console commands or APIs not support simultaneous operations on one cluster.
 
 ## Console Commands
 
-Start a cluster in a single redis node (the node should have cluster enabled, and not in a cluster)
+NOTE: The 0.5.0 CLI APIs are not backward compatible.
 
-    redis-trib.py start NODE_HOST:PORT
+### Cluster Manipulation
 
-Start a cluster in some redis nodes (the nodes should have cluster enabled, and none of them in any cluster)
+Create a cluster in some redis nodes (the nodes are cluster enabled, and none of them in any cluster)
 
-    redis-trib.py start_multi NODE_HOST_a:PORT_a NODE_HOST_b:PORT_b ...
-
-Add another master node to a cluster
-
-    redis-trib.py join CLUSTER_HOST:PORT NEW_NODE_HOST:PORT
-
-The above APIs balance slots automatically and not configurable.
+    redis-trib.py create NODE_HOST_a:PORT_a NODE_HOST_b:PORT_b ...
 
 Add another node to a cluster, but neither set as slave nor migrating slots to it
 
-    redis-trib.py join_no_load CLUSTER_HOST:PORT NEW_NODE_HOST:PORT
+    redis-trib.py add_node --existing-addr CLUSTER_HOST:PORT --new-addr NEW_NODE_HOST:PORT
 
 Add a slave node to a master (slave should not in any cluster)
 
-    redis-trib.py replicate MASTER_HOST:PORT SLAVE_HOST:PORT
+    redis-trib.py replicate --master-addr MASTER_HOST:PORT --slave-addr SLAVE_HOST:PORT
 
 Remove a node from its cluster
 
-    redis-trib.py quit NODE_HOST:PORT
+    redis-trib.py del_node --addr NODE_HOST:PORT
 
 Shutdown an empty cluster (there is only one node left and no keys in the node)
 
-    redis-trib.py shutdown NODE_HOST:PORT
+    redis-trib.py shutdown --addr NODE_HOST:PORT
 
-Fix a migrating slot in a node
+Fix migrating slots in a node
 
-    redis-trib.py fix HOST_HOST:PORT
+    redis-trib.py fix --addr HOST_HOST:PORT
 
 Migrate slots (require source node holding all the migrating slots, and the two nodes are in the same cluster)
 
-    redis-trib.py migrate_slots SRC_HOST:PORT DST_HOST:PORT SLOT SLOT_BEGIN-SLOT_END
+    redis-trib.py migrate --src-addr SRC_HOST:PORT --dst-addr DST_HOST:PORT SLOT SLOT_BEGIN-SLOT_END
 
 each of "slot" argument tuple could be an integer (indicating a single slot number) or a range (begin and end, both inclusive). For example
 
-    redis-trib.py migrate_slots 127.0.0.1:7000 127.0.0.1:7001 0 2 4-7
+    redis-trib.py migrate --src-addr 127.0.0.1:7000 --dst-addr 127.0.0.1:7001 0 2 4-7
 
 means migrate slot #0 #2 #4 #5 #6 #7 from `127.0.0.1:7000` to `127.0.0.1:7001`.
 
+each master node in the output is in the format of `M HOST:PORT FLAGS NUMBER_OF_SLOTS`, while slave node is in the format of `S HOST:PORT FLAGS MASTER_HOST:PORT`. The format maybe changes in the future. If you want stable API, try parse the output of `CLUSTER NODES` command, or use the `list_nodes` Python API below.
+
+See also https://github.com/antirez/redis/blob/3.0/src/redis-trib.rb
+
 Rescue a failed cluster, specify host, port of one node in the cluster, and a free node
 
-    redis-trib.py rescue 127.0.0.1:7000 127.0.0.1:8000
+    redis-trib.py rescue --existing-addr 127.0.0.1:7000 --new-addr 127.0.0.1:8000
 
 The program would check which slots are failed in the cluster which contains `127.0.0.1:7000`, and add them to `127.0.0.1:8000`.
+
+### List Cluster Nodes
+
+List nodes in a cluster and output simple master slave relationship between them
+
+    redis-trib.py list --addr HOST:PORT
+
+Output:
+
+    Total 4 nodes, 2 masters, 0 fail
+    M  127.0.0.1:7001 master 0
+    M  127.0.0.1:7003 master 8000
+     S 127.0.0.1:7000 myself,slave 127.0.0.1:7003
+     S 127.0.0.1:7002 slave 127.0.0.1:7003
+    M  127.0.0.1:7005 master 8384
+     S 127.0.0.1:7004 slave 127.0.0.1:7005
+
+Each line represent one Redis node and a leading `M` means it is a master, while a leading `S` means slave. The second column contains address, the third contains its flags, the last column contains the number of slots assigned to it if it is a master, or its master's address if it is a slave.
+
+Lines are sorted by the master addresses, and each slave will be displayed after its master.
+
+The format may be changed in the future. If you need a stable API, use Redis `CLUSTER NODES` command instead. Or use the `redistrib.command.list_nodes` Python API, which is mentioned below.
+
+### Execute Command
+
+Execute a command on each cluster node
+
+    redis-trib.py execute --addr HOST:PORT COMMAND ARGS...
+    redis-trib.py execute --addr HOST:PORT --master-only COMMAND ARGS...
+    redis-trib.py execute --addr HOST:PORT --slave-only COMMAND ARGS...
+
+For example:
+
+    redis-trib.py execute --addr 127.0.0.1 PING
+
+Output:
+
+    127.0.0.1:7001 +PONG
+    127.0.0.1:7002 +PONG
+    127.0.0.1:7003 +PONG
+    127.0.0.1:7000 +PONG
+
+Execute a command only on masters
+
+    redis-trib.py execute --addr 127.0.0.1:7000 --master-only config get maxmemory
+
+Output:
+
+    127.0.0.1:7001 +['maxmemory', '0']
+    127.0.0.1:7003 +['maxmemory', '1000000000']
+
+A list reply will be displayed as a Python list.
 
 ## Python APIs
 
@@ -65,30 +115,21 @@ The program would check which slots are failed in the cluster which contains `12
 
     import redistrib.command
 
-    # start cluster at node 127.0.0.1:7000
-    # this API will run the "cluster addslots" command on the Redis server;
-    #   you can limit the number of slots added to the Redis in each command
-    #   by default, all 16384 slots are added at once
-    redistrib.command.start_cluster('127.0.0.1', 7000, max_slots=16384)
-
     # start cluster on multiple nodes, all the slots will be shared among them
     # the first argument is a list of (HOST, PORT) tuples
     # for example, the following call will start a cluster on 127.0.0.1:7000 and 127.0.0.1:7001
-    # the second argument is the same as "max_slots" in "start_cluster" API
-    redistrib.command.start_cluster_on_multi([('127.0.0.1', 7000), ('127.0.0.1', 7001)], max_slots=16384)
+    # this API will run the "cluster addslots" command on the Redis server;
+    #   you can limit the number of slots added to the Redis in each command by the `max_slots` argument
+    redistrib.command.create([('127.0.0.1', 7000), ('127.0.0.1', 7001)], max_slots=16384)
 
     # add node 127.0.0.1:7001 to the cluster as a master
-    redistrib.command.join_cluster('127.0.0.1', 7000, '127.0.0.1', 7001)
+    redistrib.command.add_node('127.0.0.1', 7000, '127.0.0.1', 7001)
 
     # add node 127.0.0.1:7002 to the cluster as a slave to 127.0.0.1:7000
     redistrib.command.replicate('127.0.0.1', 7000, '127.0.0.1', 7002)
 
-    # just add node 127.0.0.1:7001 to the cluster, not specifying its role
-    # could call migrate_slot(s) on it later, so that it becomes a master
-    redistrib.command.join_no_load('127.0.0.1', 7000, '127.0.0.1', 7001)
-
     # remove node 127.0.0.7000 from the cluster
-    redistrib.command.quit_cluster('127.0.0.1', 7000)
+    redistrib.command.del_node('127.0.0.1', 7000)
 
     # shut down the cluster
     redistrib.command.shutdown_cluster('127.0.0.1', 7001)
@@ -106,12 +147,6 @@ The program would check which slots are failed in the cluster which contains `12
     # and 127.0.0.1:8000 is the node that would take care of all failed slots
     redistrib.command.rescue_cluster('127.0.0.1', 7000, '127.0.0.1', 8000)
 
-See also https://github.com/antirez/redis/blob/3.0/src/redis-trib.rb
-
-The `join_cluster` function takes 2 optional arguments `balancer` and `balance_plan`. The former is an object for calculating the weights of cluster nodes, and the latter is a function that calculates how the slots migrate to balance the load between nodes.
-
-As crude examples, you could refer to `redistrib.clusternode.BaseBalancer` and `redistrib.clusternode.base_balance_plan`. An instance of `BaseBalancer` should implement `weight` method that returns the weight of a specified node, and a function like `base_balance_plan` should return a list of migration tuples (source node, destination node, slots count).
-
 ### Cluster Status APIs
 
     import redistrib.command
@@ -121,10 +156,13 @@ As crude examples, you could refer to `redistrib.clusternode.BaseBalancer` and `
     #   - host: host of specified node
     #   - port: port of specified node
     #   - default_host: default host string if the specified node doesn't know its host
+    #   - filter_func: filter function that takes one ClusterNode parameter
+    #                  and returns False if the node should be excluded from the result
     # returns
     #   - nodes: all cluster nodes
     #   - myself: the specified node itself, also contained by nodes
-    nodes, myself = redistrib.command.list_nodes('127.0.0.1', 7000, default_host='127.0.0.1')
+    nodes, myself = redistrib.command.list_nodes('127.0.0.1', 7000, default_host='127.0.0.1',
+                                                 filter_func=lambda node: True)
 
     # list all master nodes
     # args same as list_nodes
@@ -135,12 +173,15 @@ As crude examples, you could refer to `redistrib.clusternode.BaseBalancer` and `
 
 ### Classes
 
-`redistrib.cluster.ClusterNode`: cluster node, attributes:
+`redistrib.clusternode.ClusterNode`: cluster node, attributes:
 
 * `node_id`: node id
 * `host`: known host, this value could be empty string if the node is newly launched
 * `port`: listening port
+* `master`: if the node is a master
+* `slave`: if the node is a slave
 * `role_in_cluster`: `"master"` or `"slave"`
-* `master_id`: master's `node_id` if it's a slave
+* `fail`: if the node is marked as "fail" or "fail?"
+* `master_id`: master's `node_id` if it's a slave, or `None` otherwise
 * `assigned_slots`: a list of assigned slots if it's a master; it won't contain slots being migrated
 * `slots_migrating`: boolean value for whether there are any slot(s) migrating or importing on this node

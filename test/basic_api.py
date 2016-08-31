@@ -1,16 +1,15 @@
-import time
 from rediscluster import RedisCluster
 from redis.exceptions import ResponseError
 
 import base
 import redistrib.command as comm
 from redistrib.exceptions import RedisStatusError
-from redistrib.clusternode import Talker, CMD_CLUSTER_NODES
+from redistrib.connection import Connection
 
 
 class ApiTest(base.TestCase):
     def test_api(self):
-        comm.start_cluster('127.0.0.1', 7100)
+        comm.create([('127.0.0.1', 7100)])
         rc = RedisCluster([{'host': '127.0.0.1', 'port': 7100}])
         rc.set('key', 'value')
         self.assertEqual('value', rc.get('key'))
@@ -73,7 +72,7 @@ class ApiTest(base.TestCase):
                          nodes[('127.0.0.1', 7101)].assigned_slots)
 
         self.assertRaisesRegexp(
-            RedisStatusError, 'Cluster containing keys',
+            RedisStatusError, 'still contains keys',
             comm.shutdown_cluster, '127.0.0.1', 7101)
 
         rc.delete('key', *['key_%s' % i for i in xrange(20)])
@@ -82,7 +81,7 @@ class ApiTest(base.TestCase):
         self.assertRaisesRegexp(ResponseError, 'CLUSTERDOWN .*', rc.get, 'key')
 
     def test_start_with_max_slots_set(self):
-        comm.start_cluster('127.0.0.1', 7100, max_slots=7000)
+        comm.create([('127.0.0.1', 7100)], max_slots=7000)
         rc = RedisCluster([{'host': '127.0.0.1', 'port': 7100}])
         rc.set('key', 'value')
         self.assertEqual('value', rc.get('key'))
@@ -137,7 +136,7 @@ class ApiTest(base.TestCase):
                 target, source = nodes
             return [(source, target, 1)]
 
-        comm.start_cluster('127.0.0.1', 7100)
+        comm.create([('127.0.0.1', 7100)])
         rc = RedisCluster([{'host': '127.0.0.1', 'port': 7100}])
         comm.join_cluster('127.0.0.1', 7100, '127.0.0.1', 7101,
                           balance_plan=migrate_one_slot)
@@ -146,13 +145,13 @@ class ApiTest(base.TestCase):
         comm.fix_migrating('127.0.0.1', 7100)
         self.assertEqual('I am in slot 0', rc.get('h-893'))
 
-        t7100 = Talker('127.0.0.1', 7100)
+        t7100 = Connection('127.0.0.1', 7100)
         nodes = base.list_nodes('127.0.0.1', 7100)
         self.assertEqual(2, len(nodes))
 
         n7100 = nodes[('127.0.0.1', 7100)]
         n7101 = nodes[('127.0.0.1', 7101)]
-        t7100.talk('cluster', 'setslot', 0, 'importing', n7101.node_id)
+        t7100.execute('cluster', 'setslot', 0, 'importing', n7101.node_id)
 
         comm.fix_migrating('127.0.0.1', 7100)
         self.assertEqual('I am in slot 0', rc.get('h-893'))
@@ -164,7 +163,7 @@ class ApiTest(base.TestCase):
         self.assertEqual(16384, len(n7100.assigned_slots))
         self.assertEqual(0, len(n7101.assigned_slots))
 
-        t7101 = Talker('127.0.0.1', 7101)
+        t7101 = Connection('127.0.0.1', 7101)
         nodes = base.list_nodes('127.0.0.1', 7100)
         self.assertEqual(2, len(nodes))
         n7100 = nodes[('127.0.0.1', 7100)]
@@ -172,7 +171,7 @@ class ApiTest(base.TestCase):
         self.assertEqual(16384, len(n7100.assigned_slots))
         self.assertEqual(0, len(n7101.assigned_slots))
 
-        t7100.talk('cluster', 'setslot', 0, 'migrating', n7101.node_id)
+        t7100.execute('cluster', 'setslot', 0, 'migrating', n7101.node_id)
         comm.fix_migrating('127.0.0.1', 7100)
         self.assertEqual('I am in slot 0', rc.get('h-893'))
 
@@ -184,7 +183,7 @@ class ApiTest(base.TestCase):
         t7101.close()
 
     def test_join_no_load(self):
-        comm.start_cluster('127.0.0.1', 7100)
+        comm.create([('127.0.0.1', 7100)])
 
         rc = RedisCluster([{'host': '127.0.0.1', 'port': 7100}])
         rc.set('x-{h-893}', 'y')
@@ -215,16 +214,16 @@ class ApiTest(base.TestCase):
         self.assertEqual(0, len(n7102.assigned_slots))
 
         try:
-            t = n7101.talker()
-            m = t.talk('get', 'h-893')
+            t = n7101.get_conn()
+            m = t.execute('get', 'h-893')
             self.assertEqual('1', m)
 
-            m = t.talk('get', 'y-{h-893}')
+            m = t.execute('get', 'y-{h-893}')
             self.assertEqual('zzZ', m)
 
             comm.quit_cluster('127.0.0.1', 7102)
             comm.quit_cluster('127.0.0.1', 7101)
-            t = n7100.talker()
+            t = n7100.get_conn()
 
             rc.delete('x-{h-893}')
             rc.delete('y-{h-893}')

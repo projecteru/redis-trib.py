@@ -1,8 +1,8 @@
-import sys
 import logging
+import click
 
 import command
-from . import __version__, REPO
+from . import __version__
 
 
 def _parse_host_port(addr):
@@ -10,56 +10,81 @@ def _parse_host_port(addr):
     return host, int(port)
 
 
-def start(host_port):
-    command.start_cluster(*_parse_host_port(host_port))
+@click.group(help='Note: each `--xxxx-addr` argument in the following commands'
+                  ' is in the form of HOST:PORT')
+def cli():
+    pass
 
 
-def start_multi(*host_port_list):
-    command.start_cluster_on_multi([_parse_host_port(hp)
-                                    for hp in host_port_list])
+@cli.command(help='Create a cluster with several Redis nodes')
+@click.option(
+    '--max-slots', type=int, default=1024,
+    help='maxium number of slots in a single CLUSTER ADDSLOTS command')
+@click.argument('addrs', nargs=-1, required=True)
+def create(addrs, max_slots=1024):
+    command.create([_parse_host_port(hp) for hp in addrs], max_slots)
 
 
-def join(cluster_host_port, newin_host_port):
-    cluster_host, cluster_port = _parse_host_port(cluster_host_port)
-    newin_host, newin_port = _parse_host_port(newin_host_port)
-    command.join_cluster(cluster_host, cluster_port, newin_host, newin_port)
+@cli.command(help='Add a new Redis node to a cluster')
+@click.option('--existing-addr', required=True,
+              help='Address of any node in the cluster')
+@click.option('--new-addr', required=True, help='Address of the new node')
+def add_node(existing_addr, new_addr):
+    cluster_host, cluster_port = _parse_host_port(existing_addr)
+    newin_host, newin_port = _parse_host_port(new_addr)
+    command.add_node(cluster_host, cluster_port, newin_host, newin_port)
 
 
-def join_no_load(cluster_host_port, newin_host_port):
-    cluster_host, cluster_port = _parse_host_port(cluster_host_port)
-    newin_host, newin_port = _parse_host_port(newin_host_port)
-    command.join_no_load(cluster_host, cluster_port, newin_host, newin_port)
-
-
-def quit(host_port):
-    command.quit_cluster(*_parse_host_port(host_port))
-
-
-def shutdown(host_port):
-    command.shutdown_cluster(*_parse_host_port(host_port))
-
-
-def fix(host_port):
-    command.fix_migrating(*_parse_host_port(host_port))
-
-
-def rescue(host_port, subs_host_port):
-    host, port = _parse_host_port(host_port)
-    command.rescue_cluster(host, port, *_parse_host_port(subs_host_port))
-
-
-def replicate(master_host_port, slave_host_port):
-    master_host, master_port = _parse_host_port(master_host_port)
-    slave_host, slave_port = _parse_host_port(slave_host_port)
+@cli.command(help='Add a slave node to a master')
+@click.option('--master-addr', required=True, help='Address of the master')
+@click.option('--slave-addr', required=True, help='Address of the slave')
+def replicate(master_addr, slave_addr):
+    master_host, master_port = _parse_host_port(master_addr)
+    slave_host, slave_port = _parse_host_port(slave_addr)
     command.replicate(master_host, master_port, slave_host, slave_port)
 
 
-def migrate_slots(src_host_port, dst_host_port, *slot_ranges):
-    src_host, src_port = _parse_host_port(src_host_port)
-    dst_host, dst_port = _parse_host_port(dst_host_port)
+@cli.command(help='Remove a Redis node from a cluster')
+@click.option('--addr', required=True, help='Address of the node')
+def del_node(addr):
+    command.del_node(*_parse_host_port(addr))
+
+
+@cli.command(help='Shutdown a cluster. The cluster should not contain more'
+                  ' than one Redis node and there is no key in that Redis')
+@click.option('--addr', required=True, help='Address of the node')
+def shutdown(addr):
+    command.shutdown_cluster(*_parse_host_port(addr))
+
+
+@cli.command(help='Fix migrating status')
+@click.option('--addr', required=True, help='Address of the node')
+def fix(addr):
+    command.fix_migrating(*_parse_host_port(addr))
+
+
+@cli.command(help='Add a Redis node to a broken cluster to undertake missing'
+                  ' slots and recover the cluster status')
+@click.option('--existing-addr', required=True,
+              help='Address of any node in the cluster')
+@click.option('--new-addr', required=True, help='Address of the new node')
+def rescue(existing_addr, new_addr):
+    host, port = _parse_host_port(existing_addr)
+    command.rescue_cluster(host, port, *_parse_host_port(new_addr))
+
+
+@cli.command(help='Migrate slots from one Redis node to another')
+@click.option('--src-addr', required=True,
+              help='Address of the migrating source')
+@click.option('--dst-addr', required=True,
+              help='Address of the migrating destination')
+@click.argument('slots_ranges', nargs=-1, required=True)
+def migrate(src_addr, dst_addr, slots_ranges):
+    src_host, src_port = _parse_host_port(src_addr)
+    dst_host, dst_port = _parse_host_port(dst_addr)
 
     slots = []
-    for rg in slot_ranges:
+    for rg in slots_ranges:
         if '-' in rg:
             begin, end = rg.split('-')
             slots.extend(xrange(int(begin), int(end) + 1))
@@ -69,13 +94,65 @@ def migrate_slots(src_host_port, dst_host_port, *slot_ranges):
     command.migrate_slots(src_host, src_port, dst_host, dst_port, slots)
 
 
+def _format_master(node):
+    s = 'M  %s %s %d' % (node.addr(), ','.join(node.flags),
+                         len(node.assigned_slots))
+    if node.slots_migrating:
+        s += ' [migrating]'
+    return s
+
+
+def _format_slave(node, master):
+    return ' S %s %s %s' % (node.addr(), ','.join(node.flags), master.addr())
+
+
+@cli.command(help='List Redis nodes in a cluster')
+@click.option('--addr', required=True,
+              help='Address of any node in the cluster')
+def list(addr):
+    host, port = _parse_host_port(addr)
+    id_map = {}
+    nodes = sorted(command.list_nodes(host, port)[0], key=lambda n: n.addr())
+    master_count = 0
+    fail_count = 0
+    for node in nodes:
+        node.slaves = []
+        id_map[node.node_id] = node
+        if node.fail:
+            fail_count += 1
+    for node in nodes:
+        if node.slave:
+            if node.master_id:
+                id_map[node.master_id].slaves.append(node)
+        else:
+            master_count += 1
+    print('Total %d nodes, %d masters, %d fail' % (
+        len(nodes), master_count, fail_count))
+    for node in nodes:
+        if node.master:
+            print(_format_master(node))
+            for slave in node.slaves:
+                print(_format_slave(slave, node))
+
+
+@cli.command(help='Send a command to all nodes in the cluster')
+@click.option('--master-only', is_flag=True,
+              help='Only send to masters, and ignore --slave flag')
+@click.option('--slave-only', is_flag=True, help='Only send to slaves')
+@click.option('--addr', required=True,
+              help='Address of any node in the cluster')
+@click.argument('commands', nargs=-1, required=True)
+def execute(master_only, slave_only, addr, commands):
+    host, port = _parse_host_port(addr)
+    for r in command.execute(host, port, master_only, slave_only, commands):
+        if r['result'] is None:
+            print('%s -%s' % (r['node'].addr(), r['exception']))
+        else:
+            print('%s +%s' % (r['node'].addr(), r['result']))
+
+
 def main():
-    print 'Redis-trib', __version__,
-    print 'Copyright (c) HunanTV Platform developers'
-    if len(sys.argv) < 2:
-        print >> sys.stderr, 'Usage:'
-        print >> sys.stderr, '    redis-trib.py ACTION_NAME [arg0 arg1 ...]'
-        print >> sys.stderr, 'Take a look at README for more details:', REPO
-        sys.exit(1)
     logging.basicConfig(level=logging.INFO)
-    getattr(sys.modules[__name__], sys.argv[1])(*sys.argv[2:])
+    click.echo('Redis-trib %s Copyright (c) HunanTV Platform developers' %
+               __version__)
+    cli()

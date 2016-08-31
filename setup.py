@@ -15,6 +15,8 @@ setup(
     install_requires=[
         'hiredis',
         'retrying',
+        'Werkzeug',
+        'click',
     ],
     zip_safe=False,
     entry_points=dict(

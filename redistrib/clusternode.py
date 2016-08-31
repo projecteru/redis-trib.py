@@ -1,130 +1,17 @@
-import socket
-import hiredis
-import logging
+from werkzeug.utils import cached_property
 
-SYM_STAR = '*'
-SYM_DOLLAR = '$'
-SYM_CRLF = '\r\n'
-SYM_EMPTY = ''
-
-
-def encode(value, encoding='utf-8'):
-    if isinstance(value, bytes):
-        return value
-    if isinstance(value, (int, long)):
-        return str(value)
-    if isinstance(value, float):
-        return repr(value)
-    if isinstance(value, unicode):
-        return value.encode(encoding)
-    if not isinstance(value, basestring):
-        return str(value)
-    return value
-
-
-def squash_commands(commands):
-    output = []
-    buf = ''
-
-    for c in commands:
-        buf = SYM_EMPTY.join((buf, SYM_STAR, str(len(c)), SYM_CRLF))
-
-        for arg in map(encode, c):
-            if len(buf) > 6000 or len(arg) > 6000:
-                output.append(SYM_EMPTY.join((buf, SYM_DOLLAR, str(len(arg)),
-                                              SYM_CRLF)))
-                output.append(arg)
-                buf = SYM_CRLF
-            else:
-                buf = SYM_EMPTY.join((buf, SYM_DOLLAR, str(len(arg)),
-                                      SYM_CRLF, arg, SYM_CRLF))
-    output.append(buf)
-    return output
-
-
-def pack_command(command, *args):
-    return squash_commands([(command,) + args])
-
-CMD_INFO = pack_command('info')
-CMD_CLUSTER_NODES = pack_command('cluster', 'nodes')
-CMD_CLUSTER_INFO = pack_command('cluster', 'info')
-
-
-class Talker(object):
-    def __init__(self, host, port, timeout=5):
-        self.host = host
-        self.port = port
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.reader = hiredis.Reader()
-        self.last_raw_message = ''
-
-        self.sock.settimeout(timeout)
-        logging.debug('Connect to %s:%d', host, port)
-        self.sock.connect((host, port))
-
-    def _recv(self):
-        while True:
-            m = self.sock.recv(16384)
-            self.last_raw_message += m
-            self.reader.feed(m)
-            r = self.reader.gets()
-            if r != False:
-                return r
-
-    def _recv_multi(self, n):
-        resp = []
-        while len(resp) < n:
-            m = self.sock.recv(16384)
-            self.last_raw_message += m
-            self.reader.feed(m)
-
-            r = self.reader.gets()
-            while r != False:
-                resp.append(r)
-                r = self.reader.gets()
-        return resp
-
-    def talk_raw(self, command, recv=None):
-        recv = recv or self._recv
-        for c in command:
-            self.sock.send(c)
-        r = recv()
-        if r is None:
-            raise ValueError('No reply')
-        if isinstance(r, hiredis.ReplyError):
-            raise r
-        return r
-
-    def talk(self, *args):
-        return self.talk_raw(pack_command(*args))
-
-    def talk_bulk(self, cmd_list):
-        return self.talk_raw(squash_commands(cmd_list),
-                             recv=lambda: self._recv_multi(len(cmd_list)))
-
-    def close(self):
-        return self.sock.close()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, except_type, except_obj, tb):
-        self.close()
-        return False
+from connection import Connection
 
 class ClusterNode(object):
-    def __init__(self, node_id, latest_know_ip_address_and_port,
-                 role_in_cluster, node_id_of_master_if_it_is_a_slave,
-                 last_ping_sent_time, last_pong_received_time, node_index,
-                 link_status, *assigned_slots):
+    def __init__(self, node_id, latest_know_ip_address_and_port, flags,
+                 master_id, last_ping_sent_time, last_pong_received_time,
+                 node_index, link_status, *assigned_slots):
         self.node_id = node_id
         host, port = latest_know_ip_address_and_port.split(':')
         self.host = host
         self.port = int(port)
-        self.role_in_cluster = (role_in_cluster.split(',')[1]
-                                if 'myself' in role_in_cluster
-                                else role_in_cluster)
-        self.master_id = node_id_of_master_if_it_is_a_slave
+        self.flags = flags.split(',')
+        self.master_id = None if master_id == '-' else master_id
         self.assigned_slots = []
         self.slots_migrating = False
         for slots_range in assigned_slots:
@@ -138,17 +25,43 @@ class ClusterNode(object):
             else:
                 self.assigned_slots.append(int(slots_range))
 
-        self._talker = None
+        self._conn = None
 
-    def talker(self):
-        if self._talker is None:
-            self._talker = Talker(self.host, self.port)
-        return self._talker
+    def addr(self):
+        return '%s:%d' % (self.host, self.port)
+
+    @cached_property
+    def role_in_cluster(self):
+        return 'master' if self.master else 'slave'
+
+    @cached_property
+    def myself(self):
+        return 'myself' in self.flags
+
+    @cached_property
+    def master(self):
+        return 'master' in self.flags
+
+    @cached_property
+    def slave(self):
+        return not self.master
+
+    @cached_property
+    def fail(self):
+        return 'fail' in self.flags or 'fail?' in self.flags
+
+    def get_conn(self):
+        if self._conn is None:
+            self._conn = Connection(self.host, self.port)
+        return self._conn
 
     def close(self):
-        if self._talker is not None:
-            self._talker.close()
-            self._talker = None
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
+    def talker(self):
+        return self.get_conn()
 
 
 class BaseBalancer(object):
