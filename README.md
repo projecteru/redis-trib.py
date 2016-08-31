@@ -5,11 +5,15 @@
 
 # Usage
 
-NOTE: The following console commands or APIs not support simultaneous operations on one cluster.
+NOTE: The following console commands or APIs do not support simultaneous operations on one cluster.
 
 ## Console Commands
 
-NOTE: The 0.5.0 CLI APIs are not backward compatible.
+NOTE: The 0.5.x CLI is not backward compatible.
+
+Check more examples at the [wiki](https://github.com/HunanTV/redis-trib.py/wiki/How-to-Cluster).
+
+See also https://github.com/antirez/redis/blob/3.0/src/redis-trib.rb
 
 ### Cluster Manipulation
 
@@ -41,21 +45,9 @@ Migrate slots (require source node holding all the migrating slots, and the two 
 
     redis-trib.py migrate --src-addr SRC_HOST:PORT --dst-addr DST_HOST:PORT SLOT SLOT_BEGIN-SLOT_END
 
-each of "slot" argument tuple could be an integer (indicating a single slot number) or a range (begin and end, both inclusive). For example
-
-    redis-trib.py migrate --src-addr 127.0.0.1:7000 --dst-addr 127.0.0.1:7001 0 2 4-7
-
-means migrate slot #0 #2 #4 #5 #6 #7 from `127.0.0.1:7000` to `127.0.0.1:7001`.
-
-each master node in the output is in the format of `M HOST:PORT FLAGS NUMBER_OF_SLOTS`, while slave node is in the format of `S HOST:PORT FLAGS MASTER_HOST:PORT`. The format maybe changes in the future. If you want stable API, try parse the output of `CLUSTER NODES` command, or use the `list_nodes` Python API below.
-
-See also https://github.com/antirez/redis/blob/3.0/src/redis-trib.rb
-
 Rescue a failed cluster, specify host, port of one node in the cluster, and a free node
 
-    redis-trib.py rescue --existing-addr 127.0.0.1:7000 --new-addr 127.0.0.1:8000
-
-The program would check which slots are failed in the cluster which contains `127.0.0.1:7000`, and add them to `127.0.0.1:8000`.
+    redis-trib.py rescue --existing-addr CLUSTER_NODE_HOST:PORT --new-addr NEW_NODE_HOST:PORT
 
 ### List Cluster Nodes
 
@@ -97,17 +89,6 @@ Output:
     127.0.0.1:7002 +PONG
     127.0.0.1:7003 +PONG
     127.0.0.1:7000 +PONG
-
-Execute a command only on masters
-
-    redis-trib.py execute --addr 127.0.0.1:7000 --master-only config get maxmemory
-
-Output:
-
-    127.0.0.1:7001 +['maxmemory', '0']
-    127.0.0.1:7003 +['maxmemory', '1000000000']
-
-A list reply will be displayed as a Python list.
 
 ## Python APIs
 
