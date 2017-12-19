@@ -188,7 +188,8 @@ def _migr_one_slot(source_node, target_node, slot, nodes):
     keys = _migr_keys(source_conn, target_node.host, target_node.port, slot)
     setslot_stable(source_conn, slot, target_node.node_id)
     for node in nodes:
-        setslot_stable(node.get_conn(), slot, target_node.node_id)
+        if node.master:
+            setslot_stable(node.get_conn(), slot, target_node.node_id)
     return keys
 
 

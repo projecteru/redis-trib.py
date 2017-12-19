@@ -7,7 +7,7 @@ class ClusterNode(object):
                  master_id, last_ping_sent_time, last_pong_received_time,
                  node_index, link_status, *assigned_slots):
         self.node_id = node_id
-        host, port = latest_know_ip_address_and_port.split(':')
+        host, port = latest_know_ip_address_and_port.split('@')[0].split(':')
         self.host = host
         self.port = int(port)
         self.flags = flags.split(',')
@@ -61,6 +61,8 @@ class ClusterNode(object):
             self._conn = None
 
     def talker(self):
+        import warnings
+        warnings.warn('redistrib.clusternode.ClusterNode.talker is deprecated and will be removed at the next release.')
         return self.get_conn()
 
 

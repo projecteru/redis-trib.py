@@ -1,5 +1,6 @@
-from rediscluster import RedisCluster
+from rediscluster import StrictRedisCluster
 from redis.exceptions import ResponseError
+from rediscluster.exceptions import RedisClusterException
 
 import base
 import redistrib.command as comm
@@ -10,7 +11,8 @@ from redistrib.connection import Connection
 class ApiTest(base.TestCase):
     def test_api(self):
         comm.create([('127.0.0.1', 7100)])
-        rc = RedisCluster([{'host': '127.0.0.1', 'port': 7100}])
+        rc = StrictRedisCluster(startup_nodes=[{'host': '127.0.0.1', 'port': 7100}],
+                                decode_responses=True)
         rc.set('key', 'value')
         self.assertEqual('value', rc.get('key'))
 
@@ -62,14 +64,17 @@ class ApiTest(base.TestCase):
 
         comm.quit_cluster('127.0.0.1', 7100)
 
+        nodes = base.list_nodes('127.0.0.1', 7100)
+        self.assertEqual(1, len(nodes))
+        self.assertEqual(0, len(nodes[('127.0.0.1', 7100)].assigned_slots))
+        nodes = base.list_nodes('127.0.0.1', 7101)
+        self.assertEqual(1, len(nodes))
+        self.assertEqual(range(16384), nodes[('127.0.0.1', 7101)].assigned_slots)
+        rc = StrictRedisCluster(startup_nodes=[{'host': '127.0.0.1', 'port': 7101}],
+                                decode_responses=True)
         for i in xrange(20):
             self.assertEqual('value_%s' % i, rc.get('key_%s' % i))
         self.assertEqual('value', rc.get('key'))
-
-        nodes = base.list_nodes('127.0.0.1', 7101)
-        self.assertEqual(1, len(nodes))
-        self.assertEqual(range(16384),
-                         nodes[('127.0.0.1', 7101)].assigned_slots)
 
         self.assertRaisesRegexp(
             RedisStatusError, 'still contains keys',
@@ -78,11 +83,15 @@ class ApiTest(base.TestCase):
         rc.delete('key', *['key_%s' % i for i in xrange(20)])
         comm.shutdown_cluster('127.0.0.1', 7101)
 
-        self.assertRaisesRegexp(ResponseError, 'CLUSTERDOWN .*', rc.get, 'key')
+        self.assertRaisesRegexp(
+            RedisClusterException,
+            'All slots are not covered after query all startup_nodes. .*',
+            rc.get, 'key')
 
     def test_start_with_max_slots_set(self):
         comm.create([('127.0.0.1', 7100)], max_slots=7000)
-        rc = RedisCluster([{'host': '127.0.0.1', 'port': 7100}])
+        rc = StrictRedisCluster(startup_nodes=[{'host': '127.0.0.1', 'port': 7100}],
+                                decode_responses=True)
         rc.set('key', 'value')
         self.assertEqual('value', rc.get('key'))
         rc.delete('key')
@@ -90,7 +99,8 @@ class ApiTest(base.TestCase):
 
         comm.start_cluster_on_multi([('127.0.0.1', 7100), ('127.0.0.1', 7101)],
                                     max_slots=7000)
-        rc = RedisCluster([{'host': '127.0.0.1', 'port': 7100}])
+        rc = StrictRedisCluster(startup_nodes=[{'host': '127.0.0.1', 'port': 7100}],
+                                decode_responses=True)
         rc.set('key', 'value')
         self.assertEqual('value', rc.get('key'))
         rc.delete('key')
@@ -137,7 +147,8 @@ class ApiTest(base.TestCase):
             return [(source, target, 1)]
 
         comm.create([('127.0.0.1', 7100)])
-        rc = RedisCluster([{'host': '127.0.0.1', 'port': 7100}])
+        rc = StrictRedisCluster(startup_nodes=[{'host': '127.0.0.1', 'port': 7100}],
+                                decode_responses=True)
         comm.join_cluster('127.0.0.1', 7100, '127.0.0.1', 7101,
                           balance_plan=migrate_one_slot)
 
@@ -185,7 +196,8 @@ class ApiTest(base.TestCase):
     def test_join_no_load(self):
         comm.create([('127.0.0.1', 7100)])
 
-        rc = RedisCluster([{'host': '127.0.0.1', 'port': 7100}])
+        rc = StrictRedisCluster(startup_nodes=[{'host': '127.0.0.1', 'port': 7100}],
+                                decode_responses=True)
         rc.set('x-{h-893}', 'y')
         rc.set('y-{h-893}', 'zzZ')
         rc.set('z-{h-893}', 'w')

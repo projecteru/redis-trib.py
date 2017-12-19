@@ -1,5 +1,5 @@
 import time
-from rediscluster import RedisCluster
+from rediscluster import StrictRedisCluster
 
 import base
 import redistrib.command as comm
@@ -12,7 +12,8 @@ class ReplicationTest(base.TestCase):
         comm.replicate('127.0.0.1', 7100, '127.0.0.1', 7102)
         time.sleep(1)
 
-        rc = RedisCluster([{'host': '127.0.0.1', 'port': 7100}])
+        rc = StrictRedisCluster(startup_nodes=[{'host': '127.0.0.1', 'port': 7100}],
+                                decode_responses=True)
 
         for i in xrange(20):
             rc.set('key_%s' % i, 'value_%s' % i)
@@ -47,7 +48,8 @@ class ReplicationTest(base.TestCase):
         comm.replicate('127.0.0.1', 7100, '127.0.0.1', 7102)
         time.sleep(1)
 
-        rc = RedisCluster([{'host': '127.0.0.1', 'port': 7100}])
+        rc = StrictRedisCluster(startup_nodes=[{'host': '127.0.0.1', 'port': 7100}],
+                                decode_responses=True)
 
         for i in xrange(20):
             rc.set('key_%s' % i, 'value_%s' % i)
