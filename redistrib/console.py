@@ -1,8 +1,8 @@
 import logging
 import click
+from six.moves import range
 
-import command
-from . import __version__
+from . import command, __version__
 
 
 def _parse_host_port(addr):
@@ -87,7 +87,7 @@ def migrate(src_addr, dst_addr, slots_ranges):
     for rg in slots_ranges:
         if '-' in rg:
             begin, end = rg.split('-')
-            slots.extend(xrange(int(begin), int(end) + 1))
+            slots.extend(range(int(begin), int(end) + 1))
         else:
             slots.append(int(rg))
 

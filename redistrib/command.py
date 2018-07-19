@@ -1,10 +1,12 @@
 import re
 import hiredis
 import logging
+import six
+from six.moves import range
 from retrying import retry
 
-from clusternode import ClusterNode, base_balance_plan
-from connection import Connection, CMD_INFO, CMD_CLUSTER_NODES, CMD_CLUSTER_INFO
+from .clusternode import ClusterNode, base_balance_plan
+from .connection import Connection, CMD_INFO, CMD_CLUSTER_NODES, CMD_CLUSTER_INFO
 
 SLOT_COUNT = 16384
 PAT_CLUSTER_ENABLED = re.compile('cluster_enabled:([01])')
@@ -67,7 +69,7 @@ def _poll_check_status(t):
 
 def _add_slots(t, begin, end, max_slots):
     def addslots(t, begin, end):
-        m = t.execute('cluster', 'addslots', *xrange(begin, end))
+        m = t.execute('cluster', 'addslots', *range(begin, end))
         logging.debug('Ask `cluster addslots` Rsp %s', m)
         if m.lower() != 'ok':
             t.raise_('Unexpected reply after ADDSLOTS: %s' % m)
@@ -93,7 +95,7 @@ def create(host_port_list, max_slots=1024):
         for i, t in enumerate(conns[1:]):
             t.execute('cluster', 'meet', first_conn.host, first_conn.port)
 
-        slots_each = SLOT_COUNT / len(conns)
+        slots_each = SLOT_COUNT // len(conns)
         slots_residue = SLOT_COUNT - slots_each * len(conns)
         first_node_slots = slots_residue + slots_each
 
@@ -172,18 +174,18 @@ def _migr_one_slot(source_node, target_node, slot, nodes):
             target_conn.execute('cluster', 'setslot', slot, 'importing',
                                 source_node.node_id),
             target_conn, slot)
-    except hiredis.ReplyError, e:
-        if 'already the owner of' not in e.message:
-            target_conn.raise_(e.message)
+    except hiredis.ReplyError as e:
+        if 'already the owner of' not in str(e):
+            target_conn.raise_(str(e))
 
     try:
         expect_exec_ok(
             source_conn.execute('cluster', 'setslot', slot, 'migrating',
                                 target_node.node_id),
             source_conn, slot)
-    except hiredis.ReplyError, e:
-        if 'not the owner of' not in e.message:
-            source_conn.raise_(e.message)
+    except hiredis.ReplyError as e:
+        if 'not the owner of' not in str(e):
+            source_conn.raise_(str(e))
 
     keys = _migr_keys(source_conn, target_node.host, target_node.port, slot)
     setslot_stable(source_conn, slot, target_node.node_id)
@@ -245,7 +247,7 @@ def _check_master_and_migrate_slots(nodes, myself):
     if myself.node_id in master_ids:
         raise ValueError('The master still has slaves')
 
-    mig_slots_to_each = len(myself.assigned_slots) / len(other_masters)
+    mig_slots_to_each = len(myself.assigned_slots) // len(other_masters)
     for node in other_masters[:-1]:
         _migr_slots(myself, node, myself.assigned_slots[:mig_slots_to_each],
                     nodes)
@@ -269,8 +271,8 @@ def del_node(host, port):
             tk = node.get_conn()
             try:
                 tk.execute('cluster', 'forget', myself.node_id)
-            except hiredis.ReplyError, e:
-                if 'Unknown node' not in e.message:
+            except hiredis.ReplyError as e:
+                if 'Unknown node' not in str(e):
                     raise
         t.execute('cluster', 'reset')
     finally:
@@ -291,13 +293,13 @@ def shutdown_cluster(host, port):
         myself = None
         m = t.send_raw(CMD_CLUSTER_NODES)
         logging.debug('Ask `cluster nodes` Rsp %s', m)
-        nodes_info = filter(None, m.split('\n'))
+        nodes_info = [i for i in m.split('\n') if i]
         if len(nodes_info) > 1:
             t.raise_('More than 1 nodes in cluster.')
         try:
             m = t.execute('cluster', 'reset')
-        except hiredis.ReplyError, e:
-            if 'containing keys' in e.message:
+        except hiredis.ReplyError as e:
+            if 'containing keys' in str(e):
                 t.raise_('Redis still contains keys')
             raise
         logging.debug('Ask `cluster delslots` Rsp %s', m)
@@ -331,7 +333,7 @@ def fix_migrating(host, port):
                               host, port, node_id)
                 continue
             _migr_one_slot(nodes[node_id], n, int(args['slot']),
-                           nodes.itervalues())
+                           six.itervalues(nodes))
         for n, args in mig_srcs:
             node_id = args['id']
             if node_id not in nodes:
@@ -340,10 +342,10 @@ def fix_migrating(host, port):
                               host, port, node_id)
                 continue
             _migr_one_slot(n, nodes[node_id], int(args['slot']),
-                           nodes.itervalues())
+                           six.itervalues(nodes))
     finally:
         t.close()
-        for n in nodes.itervalues():
+        for n in six.itervalues(nodes):
             n.close()
 
 
@@ -430,14 +432,19 @@ def migrate_slots(src_host, src_port, dst_host, dst_port, slots):
     logging.debug('Migrating %s', slots)
     if not slots.issubset(set(myself.assigned_slots)):
         raise ValueError('Not all slot held by %s:%d' % (src_host, src_port))
-    for n in nodes:
-        if n.host == dst_host and n.port == dst_port:
-            return _migr_slots(myself, n, slots, nodes)
-    raise ValueError('Two nodes are not in the same cluster')
+
+    try:
+        for n in nodes:
+            if n.host == dst_host and n.port == dst_port:
+                return _migr_slots(myself, n, slots, nodes)
+        raise ValueError('Two nodes are not in the same cluster')
+    finally:
+        for n in nodes:
+            n.close()
 
 
 def rescue_cluster(host, port, subst_host, subst_port):
-    failed_slots = set(xrange(SLOT_COUNT))
+    failed_slots = set(range(SLOT_COUNT))
     with Connection(host, port) as t:
         _ensure_cluster_status_set(t)
         for node in _list_masters(t)[0]:
@@ -482,7 +489,7 @@ def execute(host, port, master_only, slave_only, commands):
             exc = None
             try:
                 r = n.get_conn().execute(*commands)
-            except StandardError as e:
+            except Exception as e:
                 exc = e
             result.append({
                 'node': n,

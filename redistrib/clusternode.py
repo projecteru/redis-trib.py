@@ -1,6 +1,6 @@
 from werkzeug.utils import cached_property
 
-from connection import Connection
+from .connection import Connection
 
 class ClusterNode(object):
     def __init__(self, node_id, latest_know_ip_address_and_port, flags,
@@ -80,7 +80,7 @@ def base_balance_plan(nodes, balancer=None):
     weights = [balancer.weight(n) for n in nodes]
     total_weight = sum(weights)
 
-    result_slots = [total_slots * w / total_weight for w in weights]
+    result_slots = [total_slots * w // total_weight for w in weights]
     frag_slots = total_slots - sum(result_slots)
 
     migratings = [[n, r - o] for n, r, o in

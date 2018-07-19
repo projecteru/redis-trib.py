@@ -1,46 +1,50 @@
 import logging
 import socket
 import hiredis
+import six
+from six import b
 from functools import wraps
 
-from exceptions import RedisStatusError, RedisIOError
+from .exceptions import RedisStatusError, RedisIOError
 
-SYM_STAR = '*'
-SYM_DOLLAR = '$'
-SYM_CRLF = '\r\n'
-SYM_EMPTY = ''
+SYM_STAR = b('*')
+SYM_DOLLAR = b('$')
+SYM_CRLF = b('\r\n')
+EMPTY = b('')
+
+ENCODING='utf-8'
 
 
-def encode(value, encoding='utf-8'):
-    if isinstance(value, bytes):
+def encode(value):
+    if isinstance(value, six.binary_type):
         return value
-    if isinstance(value, (int, long)):
-        return str(value)
+    if isinstance(value, six.integer_types):
+        return b(str(value))
     if isinstance(value, float):
-        return repr(value)
-    if isinstance(value, unicode):
-        return value.encode(encoding)
-    if not isinstance(value, basestring):
-        return str(value)
+        return b(repr(value))
+    if isinstance(value, six.text_type):
+        return value.encode(ENCODING)
+    if not isinstance(value, six.string_types):
+        return b(value)
     return value
 
 
 def squash_commands(commands):
     output = []
-    buf = ''
+    buf = EMPTY
 
     for c in commands:
-        buf = SYM_EMPTY.join((buf, SYM_STAR, str(len(c)), SYM_CRLF))
+        buf = EMPTY.join((buf, SYM_STAR, b(str(len(c))), SYM_CRLF))
 
         for arg in map(encode, c):
             if len(buf) > 6000 or len(arg) > 6000:
-                output.append(SYM_EMPTY.join((buf, SYM_DOLLAR, str(len(arg)),
-                                              SYM_CRLF)))
+                output.append(EMPTY.join((buf, SYM_DOLLAR, b(str(len(arg))),
+                                          SYM_CRLF)))
                 output.append(arg)
                 buf = SYM_CRLF
             else:
-                buf = SYM_EMPTY.join((buf, SYM_DOLLAR, str(len(arg)),
-                                      SYM_CRLF, arg, SYM_CRLF))
+                buf = EMPTY.join((buf, SYM_DOLLAR, b(str(len(arg))), SYM_CRLF,
+                                  arg, SYM_CRLF))
     output.append(buf)
     return output
 
@@ -70,7 +74,7 @@ class Connection(object):
         self.port = port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.reader = hiredis.Reader()
-        self.last_raw_message = ''
+        self.last_raw_message = EMPTY
 
         self.sock.settimeout(timeout)
         logging.debug('Connect to %s:%d', host, port)
@@ -114,7 +118,10 @@ class Connection(object):
             raise ValueError('No reply')
         if isinstance(r, hiredis.ReplyError):
             raise r
-        return r
+
+        if isinstance(r, list):
+            return [i.decode(ENCODING) for i in r]
+        return r.decode(ENCODING)
 
     def execute(self, *args):
         return self.send_raw(pack_command(*args))

@@ -1,5 +1,6 @@
+import six
+from six.moves import range
 from rediscluster import StrictRedisCluster
-from redis.exceptions import ResponseError
 from rediscluster.exceptions import RedisClusterException
 
 import base
@@ -17,27 +18,27 @@ class ApiTest(base.TestCase):
         self.assertEqual('value', rc.get('key'))
 
         comm.join_cluster('127.0.0.1', 7100, '127.0.0.1', 7101)
-        for i in xrange(20):
+        for i in range(20):
             rc.set('key_%s' % i, 'value_%s' % i)
 
-        for i in xrange(20):
+        for i in range(20):
             self.assertEqual('value_%s' % i, rc.get('key_%s' % i))
 
         nodes = base.list_nodes('127.0.0.1', 7100)
 
         self.assertEqual(2, len(nodes))
-        self.assertEqual(range(8192),
+        self.assertEqual(list(range(8192)),
                          nodes[('127.0.0.1', 7101)].assigned_slots)
-        self.assertEqual(range(8192, 16384),
+        self.assertEqual(list(range(8192, 16384)),
                          nodes[('127.0.0.1', 7100)].assigned_slots)
 
         comm.migrate_slots('127.0.0.1', 7100, '127.0.0.1', 7101, [8192])
 
         nodes = base.list_nodes('127.0.0.1', 7100)
         self.assertEqual(2, len(nodes))
-        self.assertEqual(range(8193),
+        self.assertEqual(list(range(8193)),
                          nodes[('127.0.0.1', 7101)].assigned_slots)
-        self.assertEqual(range(8193, 16384),
+        self.assertEqual(list(range(8193, 16384)),
                          nodes[('127.0.0.1', 7100)].assigned_slots)
 
         comm.migrate_slots('127.0.0.1', 7100, '127.0.0.1', 7101,
@@ -45,21 +46,21 @@ class ApiTest(base.TestCase):
 
         nodes = base.list_nodes('127.0.0.1', 7100)
         self.assertEqual(2, len(nodes))
-        self.assertEqual(range(8196),
+        self.assertEqual(list(range(8196)),
                          nodes[('127.0.0.1', 7101)].assigned_slots)
-        self.assertEqual(range(8196, 16384),
+        self.assertEqual(list(range(8196, 16384)),
                          nodes[('127.0.0.1', 7100)].assigned_slots)
 
-        self.assertRaisesRegexp(
-            ValueError, 'Not all slot held by', comm.migrate_slots,
+        six.assertRaisesRegex(
+            self, ValueError, 'Not all slot held by', comm.migrate_slots,
             '127.0.0.1', 7100, '127.0.0.1', 7101, [8192])
 
-        self.assertRaisesRegexp(
-            ValueError, 'Not all slot held by', comm.migrate_slots,
+        six.assertRaisesRegex(
+            self, ValueError, 'Not all slot held by', comm.migrate_slots,
             '127.0.0.1', 7100, '127.0.0.1', 7101, [8195, 8196])
 
-        self.assertRaisesRegexp(
-            ValueError, 'Two nodes are not in the same cluster',
+        six.assertRaisesRegex(
+            self, ValueError, 'Two nodes are not in the same cluster',
             comm.migrate_slots, '127.0.0.1', 7100, '127.0.0.1', 7102, [8196])
 
         comm.quit_cluster('127.0.0.1', 7100)
@@ -69,22 +70,22 @@ class ApiTest(base.TestCase):
         self.assertEqual(0, len(nodes[('127.0.0.1', 7100)].assigned_slots))
         nodes = base.list_nodes('127.0.0.1', 7101)
         self.assertEqual(1, len(nodes))
-        self.assertEqual(range(16384), nodes[('127.0.0.1', 7101)].assigned_slots)
+        self.assertEqual(list(range(16384)), nodes[('127.0.0.1', 7101)].assigned_slots)
         rc = StrictRedisCluster(startup_nodes=[{'host': '127.0.0.1', 'port': 7101}],
                                 decode_responses=True)
-        for i in xrange(20):
+        for i in range(20):
             self.assertEqual('value_%s' % i, rc.get('key_%s' % i))
         self.assertEqual('value', rc.get('key'))
 
-        self.assertRaisesRegexp(
-            RedisStatusError, 'still contains keys',
+        six.assertRaisesRegex(
+            self, RedisStatusError, 'still contains keys',
             comm.shutdown_cluster, '127.0.0.1', 7101)
 
-        rc.delete('key', *['key_%s' % i for i in xrange(20)])
+        rc.delete('key', *['key_%s' % i for i in range(20)])
         comm.shutdown_cluster('127.0.0.1', 7101)
 
-        self.assertRaisesRegexp(
-            RedisClusterException,
+        six.assertRaisesRegex(
+            self, RedisClusterException,
             'All slots are not covered after query all startup_nodes. .*',
             rc.get, 'key')
 
