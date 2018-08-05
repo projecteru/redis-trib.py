@@ -67,19 +67,20 @@ def _poll_check_status(t):
         t.raise_('Unexpected status: %s' % m)
 
 
-def _add_slots(t, begin, end, max_slots):
-    def addslots(t, begin, end):
-        m = t.execute('cluster', 'addslots', *range(begin, end))
+def _add_slots(conn, slots_list, max_slots):
+    def addslots(slots_chunk):
+        m = conn.execute('cluster', 'addslots', *slots_chunk)
         logging.debug('Ask `cluster addslots` Rsp %s', m)
         if m.lower() != 'ok':
-            t.raise_('Unexpected reply after ADDSLOTS: %s' % m)
+            conn.raise_('Unexpected reply after ADDSLOTS: %s' % m)
 
-    i = begin + max_slots
-    while i < end:
-        addslots(t, begin, i)
-        begin = i
-        i += max_slots
-    addslots(t, begin, end)
+    # split list to evenly sized chunks
+    for i in range(0, len(slots_list), max_slots):
+        addslots(slots_list[i: i + max_slots])
+
+
+def _add_slots_range(conn, begin, end, max_slots):
+    _add_slots(conn, range(begin, end), max_slots)
 
 
 def create(host_port_list, max_slots=1024):
@@ -99,12 +100,12 @@ def create(host_port_list, max_slots=1024):
         slots_residue = SLOT_COUNT - slots_each * len(conns)
         first_node_slots = slots_residue + slots_each
 
-        _add_slots(first_conn, 0, first_node_slots, max_slots)
+        _add_slots_range(first_conn, 0, first_node_slots, max_slots)
         logging.info('Add %d slots to %s:%d', slots_residue + slots_each,
                      first_conn.host, first_conn.port)
         for i, t in enumerate(conns[1:]):
-            _add_slots(t, i * slots_each + first_node_slots,
-                       (i + 1) * slots_each + first_node_slots, max_slots)
+            _add_slots_range(t, i * slots_each + first_node_slots,
+                             (i + 1) * slots_each + first_node_slots, max_slots)
             logging.info('Add %d slots to %s:%d', slots_each, t.host, t.port)
         for t in conns:
             _poll_check_status(t)
@@ -116,7 +117,7 @@ def create(host_port_list, max_slots=1024):
 def start_cluster(host, port, max_slots=SLOT_COUNT):
     with Connection(host, port) as t:
         _ensure_cluster_status_unset(t)
-        _add_slots(t, 0, SLOT_COUNT, max_slots)
+        _add_slots_range(t, 0, SLOT_COUNT, max_slots)
         _poll_check_status(t)
         logging.info('Instance at %s:%d started as a standalone cluster',
                      host, port)
@@ -262,7 +263,7 @@ def del_node(host, port):
     t = Connection(host, port)
     try:
         _ensure_cluster_status_set(t)
-        nodes, myself = _list_nodes(t, filter_func=lambda n: not n.fail)
+        nodes, myself = _list_nodes(t, filter_func=_filter_not_failed)
         nodes.remove(myself)
         if myself.master:
             _check_master_and_migrate_slots(nodes, myself)
@@ -287,20 +288,21 @@ def quit_cluster(host, port):
     return del_node(host, port)
 
 
-def shutdown_cluster(host, port):
-    with Connection(host, port) as t:
-        _ensure_cluster_status_set(t)
-        myself = None
-        m = t.send_raw(CMD_CLUSTER_NODES)
-        logging.debug('Ask `cluster nodes` Rsp %s', m)
-        nodes_info = [i for i in m.split('\n') if i]
-        if len(nodes_info) > 1:
-            t.raise_('More than 1 nodes in cluster.')
+def shutdown_cluster(host, port, ignore_failed=False):
+    with Connection(host, port) as conn:
+        _ensure_cluster_status_set(conn)
+        if ignore_failed:
+            nodes = _list_nodes(conn, filter_func=_filter_not_failed)[0]
+        else:
+            nodes = _list_nodes(conn)[0]
+
+        if len(nodes) > 1:
+            conn.raise_('More than 1 nodes in cluster.')
         try:
-            m = t.execute('cluster', 'reset')
+            m = conn.execute('cluster', 'reset')
         except hiredis.ReplyError as e:
             if 'containing keys' in str(e):
-                t.raise_('Redis still contains keys')
+                conn.raise_('Redis still contains keys')
             raise
         logging.debug('Ask `cluster delslots` Rsp %s', m)
 
@@ -387,6 +389,14 @@ def _filter_master(node):
     return node.master
 
 
+def _filter_not_failed(node):
+    return not node.fail
+
+
+def _filter_not_failed_master(node):
+    return node.master and not node.fail
+
+
 def _list_nodes(conn, default_host=None, filter_func=lambda node: True):
     m = conn.send_raw(CMD_CLUSTER_NODES)
     logging.debug('Ask `cluster nodes` Rsp %s', m)
@@ -443,35 +453,47 @@ def migrate_slots(src_host, src_port, dst_host, dst_port, slots):
             n.close()
 
 
-def rescue_cluster(host, port, subst_host, subst_port):
+def rescue_cluster(host, port, subst_host, subst_port, max_slots=1024):
     failed_slots = set(range(SLOT_COUNT))
-    with Connection(host, port) as t:
-        _ensure_cluster_status_set(t)
-        for node in _list_masters(t)[0]:
-            if not node.fail:
-                failed_slots -= set(node.assigned_slots)
+    nodes = []
+    conn_subst = Connection(subst_host, subst_port)
+    try:
+        _ensure_cluster_status_unset(conn_subst)
+        node_info = conn_subst.send_raw(CMD_CLUSTER_NODES).strip()
+        node_subst = ClusterNode(*node_info.split(' '))
+
+        with Connection(host, port) as conn_existing:
+            _ensure_cluster_status_set(conn_existing)
+            nodes = _list_nodes(conn_existing, filter_func=_filter_not_failed_master)[0]
+
+        for node in nodes:
+            failed_slots -= set(node.assigned_slots)
         if len(failed_slots) == 0:
             logging.info('No need to rescue cluster at %s:%d', host, port)
             return
 
-    with Connection(subst_host, subst_port) as s:
-        _ensure_cluster_status_unset(s)
-
-        m = s.execute('cluster', 'meet', host, port)
+        m = conn_subst.execute('cluster', 'meet', host, port)
         logging.debug('Ask `cluster meet` Rsp %s', m)
         if m.lower() != 'ok':
-            s.raise_('Unexpected reply after MEET: %s' % m)
+            conn_subst.raise_('Unexpected reply after MEET: %s' % m)
 
-        m = s.execute('cluster', 'addslots', *failed_slots)
-        logging.debug('Ask `cluster addslots` Rsp %s', m)
-
-        if m.lower() != 'ok':
-            s.raise_('Unexpected reply after ADDSLOTS: %s' % m)
-
-        _poll_check_status(s)
+        _add_slots(conn_subst, list(failed_slots), max_slots)
+        for slot in failed_slots:
+            for node in nodes:
+                m = node.get_conn().execute(
+                    'cluster', 'setslot', slot, 'node', node_subst.node_id)
+                if m.lower() != 'ok':
+                    conn.raise_('Unexpected reply after SETSLOT: %s' % m)
+        _poll_check_status(conn_subst)
+        for node in nodes:
+            _poll_check_status(node.get_conn())
         logging.info(
             'Instance at %s:%d serves %d slots to rescue the cluster',
             subst_host, subst_port, len(failed_slots))
+    finally:
+        conn_subst.close()
+        for node in nodes:
+            node.close()
 
 
 def execute(host, port, master_only, slave_only, commands):

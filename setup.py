@@ -13,7 +13,7 @@ setup(
     license='MIT',
     keywords='Redis Cluster',
     url=redistrib.REPO,
-    description='Redis Cluster tools in Python2',
+    description='Redis Cluster tools in Python',
     packages=['redistrib'],
     long_description='Visit ' + redistrib.REPO + ' for details please.',
     install_requires=requirements,
