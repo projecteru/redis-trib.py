@@ -1,3 +1,5 @@
+Redis cluster CLI tools and libraries in Python. It supports Python 2.7 and 3.5 or higher. It supports Redis 3.x and 4.x cluster mode.
+
 # Installation
 
     pip install redis-trib
@@ -8,12 +10,6 @@
 NOTE: The following console commands or APIs do not support simultaneous operations on one cluster.
 
 ## Console Commands
-
-NOTE: The 0.5.x CLI is not backward compatible.
-
-Check more examples at the [wiki](https://github.com/HunanTV/redis-trib.py/wiki/How-to-Cluster).
-
-See also https://github.com/antirez/redis/blob/3.0/src/redis-trib.rb
 
 ### Cluster Manipulation
 
@@ -89,6 +85,10 @@ Output:
     127.0.0.1:7002 +PONG
     127.0.0.1:7003 +PONG
     127.0.0.1:7000 +PONG
+
+### More Examples
+
+Please read the [wiki](https://github.com/projecteru/redis-trib.py/wiki/How-to-Cluster).
 
 ## Python APIs
 
