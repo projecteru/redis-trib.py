@@ -483,7 +483,7 @@ def rescue_cluster(host, port, subst_host, subst_port, max_slots=1024):
                 m = node.get_conn().execute(
                     'cluster', 'setslot', slot, 'node', node_subst.node_id)
                 if m.lower() != 'ok':
-                    conn.raise_('Unexpected reply after SETSLOT: %s' % m)
+                    conn_subst.raise_('Unexpected reply after SETSLOT: %s' % m)
         _poll_check_status(conn_subst)
         for node in nodes:
             _poll_check_status(node.get_conn())
