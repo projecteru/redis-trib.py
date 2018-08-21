@@ -1,8 +1,13 @@
 import redistrib
 from setuptools import setup
 
-with open('requirements.txt', 'r') as reqin:
-    requirements = [r.strip() for r in reqin.readlines()]
+requirements = [
+    'click==6.7',
+    'hiredis==0.2.0',
+    'retrying==1.3.3',
+    'six==1.11.0',
+    'Werkzeug==0.14.1',
+]
 
 setup(
     name='redis-trib',
