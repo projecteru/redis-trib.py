@@ -1,12 +1,14 @@
-import re
-import hiredis
 import logging
+import re
+
+import hiredis
 import six
-from six.moves import range
 from retrying import retry
+from six.moves import range
 
 from .clusternode import ClusterNode, base_balance_plan
-from .connection import Connection, CMD_INFO, CMD_CLUSTER_NODES, CMD_CLUSTER_INFO
+from .connection import (CMD_CLUSTER_INFO, CMD_CLUSTER_NODES, CMD_INFO,
+                         Connection)
 
 SLOT_COUNT = 16384
 PAT_CLUSTER_ENABLED = re.compile('cluster_enabled:([01])')
@@ -62,8 +64,7 @@ def _poll_check_status(t):
     logging.debug('Ask `cluster info` Rsp %s', m)
     cluster_state = PAT_CLUSTER_STATE.findall(m)
     cluster_slot_assigned = PAT_CLUSTER_SLOT_ASSIGNED.findall(m)
-    if cluster_state[0] != 'ok' or int(
-            cluster_slot_assigned[0]) != SLOT_COUNT:
+    if cluster_state[0] != 'ok' or int(cluster_slot_assigned[0]) != SLOT_COUNT:
         t.raise_('Unexpected status: %s' % m)
 
 
@@ -76,7 +77,7 @@ def _add_slots(conn, slots_list, max_slots):
 
     # split list to evenly sized chunks
     for i in range(0, len(slots_list), max_slots):
-        addslots(slots_list[i: i + max_slots])
+        addslots(slots_list[i:i + max_slots])
 
 
 def _add_slots_range(conn, begin, end, max_slots):
@@ -105,7 +106,8 @@ def create(host_port_list, max_slots=1024):
                      first_conn.host, first_conn.port)
         for i, t in enumerate(conns[1:]):
             _add_slots_range(t, i * slots_each + first_node_slots,
-                             (i + 1) * slots_each + first_node_slots, max_slots)
+                             (i + 1) * slots_each + first_node_slots,
+                             max_slots)
             logging.info('Add %d slots to %s:%d', slots_each, t.host, t.port)
         for t in conns:
             _poll_check_status(t)
@@ -119,8 +121,8 @@ def start_cluster(host, port, max_slots=SLOT_COUNT):
         _ensure_cluster_status_unset(t)
         _add_slots_range(t, 0, SLOT_COUNT, max_slots)
         _poll_check_status(t)
-        logging.info('Instance at %s:%d started as a standalone cluster',
-                     host, port)
+        logging.info('Instance at %s:%d started as a standalone cluster', host,
+                     port)
 
 
 def start_cluster_on_multi(host_port_list, max_slots=SLOT_COUNT):
@@ -139,18 +141,16 @@ def _migr_keys(src_conn, target_host, target_port, slot):
 
 
 def _migr_slots(source_node, target_node, slots, nodes):
-    logging.info(
-        'Migrating %d slots from %s<%s:%d> to %s<%s:%d>', len(slots),
-        source_node.node_id, source_node.host, source_node.port,
-        target_node.node_id, target_node.host, target_node.port)
+    logging.info('Migrating %d slots from %s<%s:%d> to %s<%s:%d>', len(slots),
+                 source_node.node_id, source_node.host, source_node.port,
+                 target_node.node_id, target_node.host, target_node.port)
     key_count = 0
     for slot in slots:
         key_count += _migr_one_slot(source_node, target_node, slot, nodes)
-    logging.info(
-        'Migrated: %d slots %d keys from %s<%s:%d> to %s<%s:%d>',
-        len(slots), key_count,
-        source_node.node_id, source_node.host, source_node.port,
-        target_node.node_id, target_node.host, target_node.port)
+    logging.info('Migrated: %d slots %d keys from %s<%s:%d> to %s<%s:%d>',
+                 len(slots), key_count, source_node.node_id, source_node.host,
+                 source_node.port, target_node.node_id, target_node.host,
+                 target_node.port)
 
 
 def _migr_one_slot(source_node, target_node, slot, nodes):
@@ -160,7 +160,8 @@ def _migr_one_slot(source_node, target_node, slot, nodes):
                 'Error while moving slot [ %d ] between' % slot,
                 'Source node - %s:%d' % (source_node.host, source_node.port),
                 'Target node - %s:%d' % (target_node.host, target_node.port),
-                'Got %s' % m]))
+                'Got %s' % m
+            ]))
 
     @retry(stop_max_attempt_number=16, wait_fixed=100)
     def setslot_stable(conn, slot, node_id):
@@ -173,8 +174,7 @@ def _migr_one_slot(source_node, target_node, slot, nodes):
     try:
         expect_exec_ok(
             target_conn.execute('cluster', 'setslot', slot, 'importing',
-                                source_node.node_id),
-            target_conn, slot)
+                                source_node.node_id), target_conn, slot)
     except hiredis.ReplyError as e:
         if 'already the owner of' not in str(e):
             target_conn.raise_(str(e))
@@ -182,8 +182,7 @@ def _migr_one_slot(source_node, target_node, slot, nodes):
     try:
         expect_exec_ok(
             source_conn.execute('cluster', 'setslot', slot, 'migrating',
-                                target_node.node_id),
-            source_conn, slot)
+                                target_node.node_id), source_conn, slot)
     except hiredis.ReplyError as e:
         if 'not the owner of' not in str(e):
             source_conn.raise_(str(e))
@@ -207,10 +206,14 @@ def _join_to_cluster(clst, new):
     _poll_check_status(new)
 
 
-def join_cluster(cluster_host, cluster_port, newin_host, newin_port,
-                 balancer=None, balance_plan=base_balance_plan):
+def join_cluster(cluster_host,
+                 cluster_port,
+                 newin_host,
+                 newin_port,
+                 balancer=None,
+                 balance_plan=base_balance_plan):
     with Connection(newin_host, newin_port) as t, \
-         Connection(cluster_host, cluster_port) as cnode:
+            Connection(cluster_host, cluster_port) as cnode:
         _join_to_cluster(cnode, t)
         nodes = []
         try:
@@ -227,7 +230,7 @@ def join_cluster(cluster_host, cluster_port, newin_host, newin_port,
 
 def add_node(cluster_host, cluster_port, newin_host, newin_port):
     with Connection(newin_host, newin_port) as t, \
-         Connection(cluster_host, cluster_port) as c:
+            Connection(cluster_host, cluster_port) as c:
         _join_to_cluster(c, t)
 
 
@@ -322,26 +325,32 @@ def fix_migrating(host, port):
             node.host = node.host or host
             nodes[node.node_id] = node
 
-            mig_dsts.extend([(node, {'slot': g[0], 'id': g[1]})
-                             for g in PAT_MIGRATING_IN.findall(node_info)])
-            mig_srcs.extend([(node, {'slot': g[0], 'id': g[1]})
-                             for g in PAT_MIGRATING_OUT.findall(node_info)])
+            mig_dsts.extend([(node, {
+                'slot': g[0],
+                'id': g[1]
+            }) for g in PAT_MIGRATING_IN.findall(node_info)])
+            mig_srcs.extend([(node, {
+                'slot': g[0],
+                'id': g[1]
+            }) for g in PAT_MIGRATING_OUT.findall(node_info)])
 
         for n, args in mig_dsts:
             node_id = args['id']
             if node_id not in nodes:
-                logging.error('Fail to fix %s:%d <- (referenced from %s:%d)'
-                              ' - node %s is missing', n.host, n.port,
-                              host, port, node_id)
+                logging.error(
+                    'Fail to fix %s:%d <- (referenced from %s:%d)'
+                    ' - node %s is missing', n.host, n.port, host, port,
+                    node_id)
                 continue
             _migr_one_slot(nodes[node_id], n, int(args['slot']),
                            six.itervalues(nodes))
         for n, args in mig_srcs:
             node_id = args['id']
             if node_id not in nodes:
-                logging.error('Fail to fix %s:%d -> (referenced from %s:%d)'
-                              ' - node %s is missing', n.host, n.port,
-                              host, port, node_id)
+                logging.error(
+                    'Fail to fix %s:%d -> (referenced from %s:%d)'
+                    ' - node %s is missing', n.host, n.port, host, port,
+                    node_id)
                 continue
             _migr_one_slot(n, nodes[node_id], int(args['slot']),
                            six.itervalues(nodes))
@@ -363,7 +372,7 @@ def _check_slave(slave_host, slave_port, t):
 
 def replicate(master_host, master_port, slave_host, slave_port):
     with Connection(slave_host, slave_port) as t, \
-         Connection(master_host, master_port) as master_conn:
+            Connection(master_host, master_port) as master_conn:
         _ensure_cluster_status_set(master_conn)
         myself = _list_nodes(master_conn)[1]
         myid = myself.node_id if myself.master else myself.master_id
@@ -377,8 +386,8 @@ def replicate(master_host, master_port, slave_host, slave_port):
         if m.lower() != 'ok':
             t.raise_('Unexpected reply after REPCLIATE: %s' % m)
         _check_slave(slave_host, slave_port, master_conn)
-        logging.info('Instance at %s:%d set as replica to %s',
-                     slave_host, slave_port, myid)
+        logging.info('Instance at %s:%d set as replica to %s', slave_host,
+                     slave_port, myid)
 
 
 def _alive_master(node):
@@ -418,8 +427,8 @@ def _list_nodes(conn, default_host=None, filter_func=lambda node: True):
 
 
 def _list_masters(conn, default_host=None):
-    return _list_nodes(conn, default_host or conn.host,
-                       filter_func=_filter_master)
+    return _list_nodes(
+        conn, default_host or conn.host, filter_func=_filter_master)
 
 
 def list_nodes(host, port, default_host=None, filter_func=lambda node: True):
@@ -464,7 +473,8 @@ def rescue_cluster(host, port, subst_host, subst_port, max_slots=1024):
 
         with Connection(host, port) as conn_existing:
             _ensure_cluster_status_set(conn_existing)
-            nodes = _list_nodes(conn_existing, filter_func=_filter_not_failed_master)[0]
+            nodes = _list_nodes(
+                conn_existing, filter_func=_filter_not_failed_master)[0]
 
         for node in nodes:
             failed_slots -= set(node.assigned_slots)
@@ -480,16 +490,15 @@ def rescue_cluster(host, port, subst_host, subst_port, max_slots=1024):
         _add_slots(conn_subst, list(failed_slots), max_slots)
         for slot in failed_slots:
             for node in nodes:
-                m = node.get_conn().execute(
-                    'cluster', 'setslot', slot, 'node', node_subst.node_id)
+                m = node.get_conn().execute('cluster', 'setslot', slot, 'node',
+                                            node_subst.node_id)
                 if m.lower() != 'ok':
                     conn_subst.raise_('Unexpected reply after SETSLOT: %s' % m)
         _poll_check_status(conn_subst)
         for node in nodes:
             _poll_check_status(node.get_conn())
-        logging.info(
-            'Instance at %s:%d serves %d slots to rescue the cluster',
-            subst_host, subst_port, len(failed_slots))
+        logging.info('Instance at %s:%d serves %d slots to rescue the cluster',
+                     subst_host, subst_port, len(failed_slots))
     finally:
         conn_subst.close()
         for node in nodes:

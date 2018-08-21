@@ -1,11 +1,12 @@
 import os
 import time
-import six
 from subprocess import Popen
 
-import base
 import redistrib.command as comm
+import six
 from redistrib.exceptions import RedisIOError
+
+import base
 
 
 class ReplicationTest(base.TestCase):
@@ -13,11 +14,16 @@ class ReplicationTest(base.TestCase):
         conf_file = '/tmp/redis_cluster_node_7103.conf'
         redis_server = Popen([
             os.environ['REDIS_SERVER'],
-            '--cluster-enabled', 'yes',
-            '--cluster-config-file', conf_file,
-            '--save', '',
-            '--appendonly', 'no',
-            '--port', '7103',
+            '--cluster-enabled',
+            'yes',
+            '--cluster-config-file',
+            conf_file,
+            '--save',
+            '',
+            '--appendonly',
+            'no',
+            '--port',
+            '7103',
         ])
         time.sleep(1)
         try:

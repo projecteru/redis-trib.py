@@ -1,19 +1,23 @@
+import redistrib.command as comm
 import six
+from redistrib.connection import Connection
+from redistrib.exceptions import RedisStatusError
 from six.moves import range
-from rediscluster import StrictRedisCluster
-from rediscluster.exceptions import RedisClusterException
 
 import base
-import redistrib.command as comm
-from redistrib.exceptions import RedisStatusError
-from redistrib.connection import Connection
+from rediscluster import StrictRedisCluster
+from rediscluster.exceptions import RedisClusterException
 
 
 class ApiTest(base.TestCase):
     def test_api(self):
         comm.create([('127.0.0.1', 7100)])
-        rc = StrictRedisCluster(startup_nodes=[{'host': '127.0.0.1', 'port': 7100}],
-                                decode_responses=True)
+        rc = StrictRedisCluster(
+            startup_nodes=[{
+                'host': '127.0.0.1',
+                'port': 7100
+            }],
+            decode_responses=True)
         rc.set('key', 'value')
         self.assertEqual('value', rc.get('key'))
 
@@ -27,37 +31,40 @@ class ApiTest(base.TestCase):
         nodes = base.list_nodes('127.0.0.1', 7100)
 
         self.assertEqual(2, len(nodes))
-        self.assertEqual(list(range(8192)),
-                         nodes[('127.0.0.1', 7101)].assigned_slots)
-        self.assertEqual(list(range(8192, 16384)),
-                         nodes[('127.0.0.1', 7100)].assigned_slots)
+        self.assertEqual(
+            list(range(8192)), nodes[('127.0.0.1', 7101)].assigned_slots)
+        self.assertEqual(
+            list(range(8192, 16384)), nodes[('127.0.0.1',
+                                             7100)].assigned_slots)
 
         comm.migrate_slots('127.0.0.1', 7100, '127.0.0.1', 7101, [8192])
 
         nodes = base.list_nodes('127.0.0.1', 7100)
         self.assertEqual(2, len(nodes))
-        self.assertEqual(list(range(8193)),
-                         nodes[('127.0.0.1', 7101)].assigned_slots)
-        self.assertEqual(list(range(8193, 16384)),
-                         nodes[('127.0.0.1', 7100)].assigned_slots)
+        self.assertEqual(
+            list(range(8193)), nodes[('127.0.0.1', 7101)].assigned_slots)
+        self.assertEqual(
+            list(range(8193, 16384)), nodes[('127.0.0.1',
+                                             7100)].assigned_slots)
 
         comm.migrate_slots('127.0.0.1', 7100, '127.0.0.1', 7101,
                            [8193, 8194, 8195])
 
         nodes = base.list_nodes('127.0.0.1', 7100)
         self.assertEqual(2, len(nodes))
-        self.assertEqual(list(range(8196)),
-                         nodes[('127.0.0.1', 7101)].assigned_slots)
-        self.assertEqual(list(range(8196, 16384)),
-                         nodes[('127.0.0.1', 7100)].assigned_slots)
+        self.assertEqual(
+            list(range(8196)), nodes[('127.0.0.1', 7101)].assigned_slots)
+        self.assertEqual(
+            list(range(8196, 16384)), nodes[('127.0.0.1',
+                                             7100)].assigned_slots)
 
-        six.assertRaisesRegex(
-            self, ValueError, 'Not all slot held by', comm.migrate_slots,
-            '127.0.0.1', 7100, '127.0.0.1', 7101, [8192])
+        six.assertRaisesRegex(self, ValueError, 'Not all slot held by',
+                              comm.migrate_slots, '127.0.0.1', 7100,
+                              '127.0.0.1', 7101, [8192])
 
-        six.assertRaisesRegex(
-            self, ValueError, 'Not all slot held by', comm.migrate_slots,
-            '127.0.0.1', 7100, '127.0.0.1', 7101, [8195, 8196])
+        six.assertRaisesRegex(self, ValueError, 'Not all slot held by',
+                              comm.migrate_slots, '127.0.0.1', 7100,
+                              '127.0.0.1', 7101, [8195, 8196])
 
         six.assertRaisesRegex(
             self, ValueError, 'Two nodes are not in the same cluster',
@@ -70,16 +77,20 @@ class ApiTest(base.TestCase):
         self.assertEqual(0, len(nodes[('127.0.0.1', 7100)].assigned_slots))
         nodes = base.list_nodes('127.0.0.1', 7101)
         self.assertEqual(1, len(nodes))
-        self.assertEqual(list(range(16384)), nodes[('127.0.0.1', 7101)].assigned_slots)
-        rc = StrictRedisCluster(startup_nodes=[{'host': '127.0.0.1', 'port': 7101}],
-                                decode_responses=True)
+        self.assertEqual(
+            list(range(16384)), nodes[('127.0.0.1', 7101)].assigned_slots)
+        rc = StrictRedisCluster(
+            startup_nodes=[{
+                'host': '127.0.0.1',
+                'port': 7101
+            }],
+            decode_responses=True)
         for i in range(20):
             self.assertEqual('value_%s' % i, rc.get('key_%s' % i))
         self.assertEqual('value', rc.get('key'))
 
-        six.assertRaisesRegex(
-            self, RedisStatusError, 'still contains keys',
-            comm.shutdown_cluster, '127.0.0.1', 7101)
+        six.assertRaisesRegex(self, RedisStatusError, 'still contains keys',
+                              comm.shutdown_cluster, '127.0.0.1', 7101)
 
         rc.delete('key', *['key_%s' % i for i in range(20)])
         comm.shutdown_cluster('127.0.0.1', 7101)
@@ -91,17 +102,25 @@ class ApiTest(base.TestCase):
 
     def test_start_with_max_slots_set(self):
         comm.create([('127.0.0.1', 7100)], max_slots=7000)
-        rc = StrictRedisCluster(startup_nodes=[{'host': '127.0.0.1', 'port': 7100}],
-                                decode_responses=True)
+        rc = StrictRedisCluster(
+            startup_nodes=[{
+                'host': '127.0.0.1',
+                'port': 7100
+            }],
+            decode_responses=True)
         rc.set('key', 'value')
         self.assertEqual('value', rc.get('key'))
         rc.delete('key')
         comm.shutdown_cluster('127.0.0.1', 7100)
 
-        comm.start_cluster_on_multi([('127.0.0.1', 7100), ('127.0.0.1', 7101)],
-                                    max_slots=7000)
-        rc = StrictRedisCluster(startup_nodes=[{'host': '127.0.0.1', 'port': 7100}],
-                                decode_responses=True)
+        comm.start_cluster_on_multi(
+            [('127.0.0.1', 7100), ('127.0.0.1', 7101)], max_slots=7000)
+        rc = StrictRedisCluster(
+            startup_nodes=[{
+                'host': '127.0.0.1',
+                'port': 7100
+            }],
+            decode_responses=True)
         rc.set('key', 'value')
         self.assertEqual('value', rc.get('key'))
         rc.delete('key')
@@ -148,10 +167,18 @@ class ApiTest(base.TestCase):
             return [(source, target, 1)]
 
         comm.create([('127.0.0.1', 7100)])
-        rc = StrictRedisCluster(startup_nodes=[{'host': '127.0.0.1', 'port': 7100}],
-                                decode_responses=True)
-        comm.join_cluster('127.0.0.1', 7100, '127.0.0.1', 7101,
-                          balance_plan=migrate_one_slot)
+        rc = StrictRedisCluster(
+            startup_nodes=[{
+                'host': '127.0.0.1',
+                'port': 7100
+            }],
+            decode_responses=True)
+        comm.join_cluster(
+            '127.0.0.1',
+            7100,
+            '127.0.0.1',
+            7101,
+            balance_plan=migrate_one_slot)
 
         rc.set('h-893', 'I am in slot 0')
         comm.fix_migrating('127.0.0.1', 7100)
@@ -197,8 +224,12 @@ class ApiTest(base.TestCase):
     def test_join_no_load(self):
         comm.create([('127.0.0.1', 7100)])
 
-        rc = StrictRedisCluster(startup_nodes=[{'host': '127.0.0.1', 'port': 7100}],
-                                decode_responses=True)
+        rc = StrictRedisCluster(
+            startup_nodes=[{
+                'host': '127.0.0.1',
+                'port': 7100
+            }],
+            decode_responses=True)
         rc.set('x-{h-893}', 'y')
         rc.set('y-{h-893}', 'zzZ')
         rc.set('z-{h-893}', 'w')

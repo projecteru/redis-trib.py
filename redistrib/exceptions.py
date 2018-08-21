@@ -4,8 +4,10 @@ class RedisErrorBase(Exception):
         self.host = host
         self.port = port
 
+
 class RedisStatusError(RedisErrorBase):
     pass
+
 
 class RedisIOError(IOError, RedisErrorBase):
     def __init__(self, error, host, port):

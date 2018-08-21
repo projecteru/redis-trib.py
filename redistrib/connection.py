@@ -1,18 +1,19 @@
 import logging
 import socket
+from functools import wraps
+
 import hiredis
 import six
 from six import b
-from functools import wraps
 
-from .exceptions import RedisStatusError, RedisIOError
+from .exceptions import RedisIOError, RedisStatusError
 
 SYM_STAR = b('*')
 SYM_DOLLAR = b('$')
 SYM_CRLF = b('\r\n')
 EMPTY = b('')
 
-ENCODING='utf-8'
+ENCODING = 'utf-8'
 
 
 def encode(value):
@@ -38,8 +39,8 @@ def squash_commands(commands):
 
         for arg in map(encode, c):
             if len(buf) > 6000 or len(arg) > 6000:
-                output.append(EMPTY.join((buf, SYM_DOLLAR, b(str(len(arg))),
-                                          SYM_CRLF)))
+                output.append(
+                    EMPTY.join((buf, SYM_DOLLAR, b(str(len(arg))), SYM_CRLF)))
                 output.append(arg)
                 buf = SYM_CRLF
             else:
@@ -50,7 +51,7 @@ def squash_commands(commands):
 
 
 def pack_command(command, *args):
-    return squash_commands([(command,) + args])
+    return squash_commands([(command, ) + args])
 
 
 CMD_INFO = pack_command('info')
@@ -65,6 +66,7 @@ def _wrap_sock_op(f):
             return f(conn, *args, **kwargs)
         except IOError as e:
             raise RedisIOError(e, conn.host, conn.port)
+
     return g
 
 
@@ -91,7 +93,7 @@ class Connection(object):
             self.last_raw_message += m
             self.reader.feed(m)
             r = self.reader.gets()
-            if r != False:
+            if r:
                 return r
 
     @_wrap_sock_op
@@ -103,7 +105,7 @@ class Connection(object):
             self.reader.feed(m)
 
             r = self.reader.gets()
-            while r != False:
+            while r:
                 resp.append(r)
                 r = self.reader.gets()
         return resp
@@ -127,8 +129,9 @@ class Connection(object):
         return self.send_raw(pack_command(*args))
 
     def execute_bulk(self, cmd_list):
-        return self.send_raw(squash_commands(cmd_list),
-                             recv=lambda: self._recv_multi(len(cmd_list)))
+        return self.send_raw(
+            squash_commands(cmd_list),
+            recv=lambda: self._recv_multi(len(cmd_list)))
 
     def close(self):
         return self.sock.close()

@@ -1,4 +1,5 @@
 import redistrib.clusternode
+
 import base
 
 
@@ -12,7 +13,8 @@ class FakeNode(object):
 class BalancePlanTest(base.TestCase):
     def test_default_balance_plan(self):
         r = redistrib.clusternode.base_balance_plan([
-            FakeNode('a', 16384), FakeNode('b', 0),
+            FakeNode('a', 16384),
+            FakeNode('b', 0),
         ])
         self.assertEqual(1, len(r))
         source, target, count = r[0]
@@ -21,7 +23,9 @@ class BalancePlanTest(base.TestCase):
         self.assertEqual(8192, count)
 
         r = redistrib.clusternode.base_balance_plan([
-            FakeNode('a', 8192), FakeNode('b', 8192), FakeNode('c', 0),
+            FakeNode('a', 8192),
+            FakeNode('b', 8192),
+            FakeNode('c', 0),
         ])
         self.assertEqual(2, len(r))
         r = sorted(r, key=lambda x: x[0].node_id)
@@ -37,16 +41,22 @@ class BalancePlanTest(base.TestCase):
         self.assertEqual(2731, count)
 
         r = redistrib.clusternode.base_balance_plan([
-            FakeNode('a', 1), FakeNode('b', 1), FakeNode('c', 0),
+            FakeNode('a', 1),
+            FakeNode('b', 1),
+            FakeNode('c', 0),
         ])
         self.assertEqual(0, len(r))
 
         r = redistrib.clusternode.base_balance_plan([
-            FakeNode('a', 0), FakeNode('b', 1), FakeNode('c', 1),
+            FakeNode('a', 0),
+            FakeNode('b', 1),
+            FakeNode('c', 1),
         ])
         self.assertEqual(0, len(r))
 
         r = redistrib.clusternode.base_balance_plan([
-            FakeNode('a', 1), FakeNode('b', 2), FakeNode('c', 1),
+            FakeNode('a', 1),
+            FakeNode('b', 2),
+            FakeNode('c', 1),
         ])
         self.assertEqual(0, len(r))

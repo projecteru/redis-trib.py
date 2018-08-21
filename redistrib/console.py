@@ -1,8 +1,9 @@
 import logging
+
 import click
 from six.moves import range
 
-from . import command, __version__
+from . import __version__, command
 
 
 def _parse_host_port(addr):
@@ -11,14 +12,16 @@ def _parse_host_port(addr):
 
 
 @click.group(help='Note: each `--xxxx-addr` argument in the following commands'
-                  ' is in the form of HOST:PORT')
+             ' is in the form of HOST:PORT')
 def cli():
     pass
 
 
 @cli.command(help='Create a cluster with several Redis nodes')
 @click.option(
-    '--max-slots', type=int, default=1024,
+    '--max-slots',
+    type=int,
+    default=1024,
     help='maxium number of slots in a single CLUSTER ADDSLOTS command')
 @click.argument('addrs', nargs=-1, required=True)
 def create(addrs, max_slots=1024):
@@ -26,8 +29,10 @@ def create(addrs, max_slots=1024):
 
 
 @cli.command(help='Add a new Redis node to a cluster')
-@click.option('--existing-addr', required=True,
-              help='Address of any node in the cluster')
+@click.option(
+    '--existing-addr',
+    required=True,
+    help='Address of any node in the cluster')
 @click.option('--new-addr', required=True, help='Address of the new node')
 def add_node(existing_addr, new_addr):
     cluster_host, cluster_port = _parse_host_port(existing_addr)
@@ -51,10 +56,13 @@ def del_node(addr):
 
 
 @cli.command(help='Shutdown a cluster. The cluster should have no more than'
-                  ' one Redis node and there should be no key in that Redis')
+             ' one Redis node and there should be no key in that Redis')
 @click.option('--addr', required=True, help='Address of the node')
-@click.option('--ignore-failed', is_flag=True, default=False,
-              help='Shutdown even if there are other nodes known as "failed"')
+@click.option(
+    '--ignore-failed',
+    is_flag=True,
+    default=False,
+    help='Shutdown even if there are other nodes known as "failed"')
 def shutdown(addr, ignore_failed):
     command.shutdown_cluster(*_parse_host_port(addr), ignore_failed)
 
@@ -66,12 +74,16 @@ def fix(addr):
 
 
 @cli.command(help='Add a Redis node to a broken cluster to undertake missing'
-                  ' slots and recover the cluster status')
-@click.option('--existing-addr', required=True,
-              help='Address of any node in the cluster')
+             ' slots and recover the cluster status')
+@click.option(
+    '--existing-addr',
+    required=True,
+    help='Address of any node in the cluster')
 @click.option('--new-addr', required=True, help='Address of the new node')
 @click.option(
-    '--max-slots', type=int, default=1024,
+    '--max-slots',
+    type=int,
+    default=1024,
     help='maxium number of slots in a single CLUSTER ADDSLOTS command')
 def rescue(existing_addr, new_addr, max_slots=1024):
     host, port = _parse_host_port(existing_addr)
@@ -79,10 +91,10 @@ def rescue(existing_addr, new_addr, max_slots=1024):
 
 
 @cli.command(help='Migrate slots from one Redis node to another')
-@click.option('--src-addr', required=True,
-              help='Address of the migrating source')
-@click.option('--dst-addr', required=True,
-              help='Address of the migrating destination')
+@click.option(
+    '--src-addr', required=True, help='Address of the migrating source')
+@click.option(
+    '--dst-addr', required=True, help='Address of the migrating destination')
 @click.argument('slots_ranges', nargs=-1, required=True)
 def migrate(src_addr, dst_addr, slots_ranges):
     src_host, src_port = _parse_host_port(src_addr)
@@ -112,8 +124,8 @@ def _format_slave(node, master):
 
 
 @cli.command(help='List Redis nodes in a cluster')
-@click.option('--addr', required=True,
-              help='Address of any node in the cluster')
+@click.option(
+    '--addr', required=True, help='Address of any node in the cluster')
 def list(addr):
     host, port = _parse_host_port(addr)
     id_map = {}
@@ -131,8 +143,8 @@ def list(addr):
                 id_map[node.master_id].slaves.append(node)
         else:
             master_count += 1
-    print('Total %d nodes, %d masters, %d fail' % (
-        len(nodes), master_count, fail_count))
+    print('Total %d nodes, %d masters, %d fail' % (len(nodes), master_count,
+                                                   fail_count))
     for node in nodes:
         if node.master:
             print(_format_master(node))
@@ -141,11 +153,13 @@ def list(addr):
 
 
 @cli.command(help='Send a command to all nodes in the cluster')
-@click.option('--master-only', is_flag=True,
-              help='Only send to masters, and ignore --slave flag')
+@click.option(
+    '--master-only',
+    is_flag=True,
+    help='Only send to masters, and ignore --slave flag')
 @click.option('--slave-only', is_flag=True, help='Only send to slaves')
-@click.option('--addr', required=True,
-              help='Address of any node in the cluster')
+@click.option(
+    '--addr', required=True, help='Address of any node in the cluster')
 @click.argument('commands', nargs=-1, required=True)
 def execute(master_only, slave_only, addr, commands):
     host, port = _parse_host_port(addr)

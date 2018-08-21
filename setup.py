@@ -1,6 +1,5 @@
-from setuptools import setup
 import redistrib
-
+from setuptools import setup
 
 with open('requirements.txt', 'r') as reqin:
     requirements = [r.strip() for r in reqin.readlines()]
@@ -21,6 +20,5 @@ setup(
     entry_points=dict(
         console_scripts=[
             'redis-trib.py=redistrib.console:main',
-        ],
-    ),
+        ], ),
 )

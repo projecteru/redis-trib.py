@@ -2,6 +2,7 @@ from werkzeug.utils import cached_property
 
 from .connection import Connection
 
+
 class ClusterNode(object):
     def __init__(self, node_id, latest_know_ip_address_and_port, flags,
                  master_id, last_ping_sent_time, last_pong_received_time,
@@ -62,7 +63,9 @@ class ClusterNode(object):
 
     def talker(self):
         import warnings
-        warnings.warn('redistrib.clusternode.ClusterNode.talker is deprecated and will be removed at the next release.')
+        warnings.warn(
+            'redistrib.clusternode.ClusterNode.talker is deprecated and will be removed at the next release.'
+        )
         return self.get_conn()
 
 
@@ -83,8 +86,8 @@ def base_balance_plan(nodes, balancer=None):
     result_slots = [total_slots * w // total_weight for w in weights]
     frag_slots = total_slots - sum(result_slots)
 
-    migratings = [[n, r - o] for n, r, o in
-                  zip(nodes, result_slots, origin_slots)]
+    migratings = [[n, r - o]
+                  for n, r, o in zip(nodes, result_slots, origin_slots)]
 
     for m in migratings:
         if frag_slots > -m[1] > 0:
@@ -94,8 +97,8 @@ def base_balance_plan(nodes, balancer=None):
             m[1] += frag_slots
             break
 
-    migrating = sorted([m for m in migratings if m[1] != 0],
-                       key=lambda x: x[1])
+    migrating = sorted(
+        [m for m in migratings if m[1] != 0], key=lambda x: x[1])
     mig_out = 0
     mig_in = len(migrating) - 1
 
