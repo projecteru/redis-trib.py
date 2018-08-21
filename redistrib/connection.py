@@ -93,7 +93,9 @@ class Connection(object):
             self.last_raw_message += m
             self.reader.feed(m)
             r = self.reader.gets()
-            if r:
+            # From hiredis.Reader : https://github.com/redis/hiredis-py#usage
+            # > When the buffer does not contain a full reply, gets returns False.
+            if r != False:
                 return r
 
     @_wrap_sock_op
@@ -105,7 +107,8 @@ class Connection(object):
             self.reader.feed(m)
 
             r = self.reader.gets()
-            while r:
+            # See the previous comment
+            while r != False:
                 resp.append(r)
                 r = self.reader.gets()
         return resp
