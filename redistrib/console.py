@@ -52,7 +52,8 @@ def replicate(master_addr, slave_addr):
 @cli.command(help='Remove a Redis node from a cluster')
 @click.option('--addr', required=True, help='Address of the node')
 def del_node(addr):
-    command.del_node(*_parse_host_port(addr))
+    host, port = _parse_host_port(addr)
+    command.del_node(host, port)
 
 
 @cli.command(help='Shutdown a cluster. The cluster should have no more than'
@@ -64,13 +65,15 @@ def del_node(addr):
     default=False,
     help='Shutdown even if there are other nodes known as "failed"')
 def shutdown(addr, ignore_failed):
-    command.shutdown_cluster(*_parse_host_port(addr), ignore_failed)
+    host, port = _parse_host_port(addr)
+    command.shutdown_cluster(host, port, ignore_failed)
 
 
 @cli.command(help='Fix migrating status')
 @click.option('--addr', required=True, help='Address of the node')
 def fix(addr):
-    command.fix_migrating(*_parse_host_port(addr))
+    host, port = _parse_host_port(addr)
+    command.fix_migrating(host, port)
 
 
 @cli.command(help='Add a Redis node to a broken cluster to undertake missing'
@@ -87,7 +90,8 @@ def fix(addr):
     help='maxium number of slots in a single CLUSTER ADDSLOTS command')
 def rescue(existing_addr, new_addr, max_slots=1024):
     host, port = _parse_host_port(existing_addr)
-    command.rescue_cluster(host, port, *_parse_host_port(new_addr), max_slots)
+    subst_host, subst_port = _parse_host_port(new_addr)
+    command.rescue_cluster(host, port, subst_host, subst_port, max_slots)
 
 
 @cli.command(help='Migrate slots from one Redis node to another')
