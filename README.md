@@ -1,5 +1,7 @@
 Redis cluster CLI tools and libraries in Python. It supports Python 2.7 and 3.5 or higher. It supports Redis 3.x and 4.x cluster mode.
 
+Note: version 0.6.x is the last releases that support Python 2.7.
+
 # Installation
 
     pip install redis-trib

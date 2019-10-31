@@ -139,10 +139,19 @@ class ApiTest(base.TestCase):
         comm.start_cluster_on_multi([('127.0.0.1', 7100), ('127.0.0.1', 7101),
                                      ('127.0.0.1', 7102)])
         nodes = base.list_nodes('127.0.0.1', 7100)
+
+        possible_slots_number = (5461, 5462)
+        ports = (7100, 7101, 7102)
+
         self.assertEqual(3, len(nodes))
-        self.assertEqual(5462, len(nodes[('127.0.0.1', 7100)].assigned_slots))
-        self.assertEqual(5461, len(nodes[('127.0.0.1', 7101)].assigned_slots))
-        self.assertEqual(5461, len(nodes[('127.0.0.1', 7102)].assigned_slots))
+        for port in ports:
+            self.assertIn(len(nodes[('127.0.0.1', port)].assigned_slots),
+                          possible_slots_number,
+                          msg='port=%s' % port)
+        self.assertEqual(
+            sum(len(nodes[('127.0.0.1', port)].assigned_slots)
+                for port in ports),
+            16384)
         comm.quit_cluster('127.0.0.1', 7100)
         comm.quit_cluster('127.0.0.1', 7101)
         comm.shutdown_cluster('127.0.0.1', 7102)
@@ -150,10 +159,17 @@ class ApiTest(base.TestCase):
         comm.start_cluster_on_multi([('127.0.0.1', 7100), ('127.0.0.1', 7101),
                                      ('127.0.0.1', 7100), ('127.0.0.1', 7102)])
         nodes = base.list_nodes('127.0.0.1', 7100)
+
         self.assertEqual(3, len(nodes))
-        self.assertEqual(5462, len(nodes[('127.0.0.1', 7100)].assigned_slots))
-        self.assertEqual(5461, len(nodes[('127.0.0.1', 7101)].assigned_slots))
-        self.assertEqual(5461, len(nodes[('127.0.0.1', 7102)].assigned_slots))
+        for port in ports:
+            self.assertIn(len(nodes[('127.0.0.1', port)].assigned_slots),
+                          possible_slots_number,
+                          msg='port=%s' % port)
+        self.assertEqual(
+            sum(len(nodes[('127.0.0.1', port)].assigned_slots)
+                for port in ports),
+            16384)
+
         comm.quit_cluster('127.0.0.1', 7100)
         comm.quit_cluster('127.0.0.1', 7101)
         comm.shutdown_cluster('127.0.0.1', 7102)

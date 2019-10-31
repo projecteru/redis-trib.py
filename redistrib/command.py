@@ -77,7 +77,12 @@ def _add_slots(conn, slots_list, max_slots):
 
     # split list to evenly sized chunks
     for i in range(0, len(slots_list), max_slots):
-        addslots(slots_list[i:i + max_slots])
+        try:
+            slots = slots_list[i: i + max_slots]
+        except TypeError:
+            # TODO in Python2 six.moves.range does not support slicing
+            slots = list(slots_list)[i: i + max_slots]
+        addslots(slots)
 
 
 def _add_slots_range(conn, begin, end, max_slots):
